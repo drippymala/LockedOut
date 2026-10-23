@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="LockedOut/LockedOut.vcxproj" Id="cb641132-9792-43d1-94e8-9ce3f357cbd3" />
+</Solution>
