@@ -11,7 +11,7 @@
 //---------------------------------------------------------
 #include "cprocessing.h" // Include the CProcessing library
 #include "utils.h" // Include the utility functions 
-#include "mainmenu.h" // Include the main menu state functions
+#include "mainmenu.h" // Include the main menu state function
 
 
 void Game_Init(void)
