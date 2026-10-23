@@ -7,7 +7,7 @@
 //          game state, including initialization, game updates, and 
 //          exit functions.
 //
-// Copyright © 2026 DigiPen, All rights reserved.
+// Copyright © 2026 DigiPen, All rights reserved
 //---------------------------------------------------------
 #include "cprocessing.h" // Include the CProcessing library
 #include "utils.h" // Include the utility functions 
