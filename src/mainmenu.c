@@ -12,7 +12,7 @@
 #include "utils.h" // Include the utility functions 
 #include "game.h" // Include the game state functions
 
-
+#if 0
 CP_Font myFont;
 
 void Main_Menu_Init(void)
@@ -78,3 +78,5 @@ void Main_Menu_Exit(void)
 {
     CP_Font_Free(myFont);
 }
+
+#endif
