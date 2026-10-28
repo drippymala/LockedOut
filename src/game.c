@@ -12,7 +12,22 @@
 #include "cprocessing.h" // Include the CProcessing library
 #include "utils.h" // Include the utility functions 
 #include "mainmenu.h" // Include the main menu state function
+#include <stdbool.h> //include boolean
 
+//enums
+typedef enum { Z_WALKER, Z_RUNNER, Z_BRUTE } ZombieType; //for different type of zombies
+
+
+//zombie structure, zombie stats 
+typedef struct
+{
+	bool active; //check if zombie is active
+	int id;
+	ZombieType type;
+	CP_Vector pos; //coordinates / position of the zombie
+	float hp, maxHp, speed, radius, damage;
+	float attackTimer, swayPhase, swayAmp, hitFlash; 
+} Zombie;
 
 void Game_Init(void)
 {
