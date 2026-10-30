@@ -29,6 +29,10 @@ typedef struct
 	float attackTimer, swayPhase, swayAmp, hitFlash; 
 } Zombie;
 
+static void DrawZombies(void) {
+	CP_Color defaultColor = Col(95, 155, 85, 255); // Default color for zombies
+}
+
 void Game_Init(void)
 {
 	
