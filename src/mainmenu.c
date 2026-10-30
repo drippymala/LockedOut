@@ -19,6 +19,7 @@ void Main_Menu_Init(void)
 {
     // Load the font for the main menu
     myFont = CP_Font_Load("Assets/Exo2-Regular.ttf");
+    //test
 }
 
 void Main_Menu_Update(void)
