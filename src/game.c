@@ -28,6 +28,10 @@ typedef struct
 {
 	CP_Vector position;
 	float     aimAngleRadians;
+	float hp;       // Player's current health
+	float maxHp;    // Player's maximum health
+	float ghostHp;  // Health value used to display the trailing ghost bar
+
 } Player;
 
 typedef enum { Z_WALKER, Z_RUNNER, Z_BRUTE } ZombieType;
@@ -49,6 +53,7 @@ static CP_Color s_zombieColor;
 static float    windowWidth = 1600.0f;
 static float    windowHeight = 900.0f;
 static Player   player;
+
 
 /* ---------- Helper Functions ---------- */
 static CP_Color Col(int r, int g, int b, int a)
@@ -177,6 +182,40 @@ static void DrawMouseCrosshair(void)
 	DrawColoredLine(mouseX, mouseY + 14.0f, mouseX, mouseY + 20.0f, 2.0f, crosshairColor);
 }
 
+static void DrawHud(void)
+{
+	char buf[160];
+	const Player* p = &player;
+
+	// Position and dimensions of the health bar
+	const float bx = 30.0f;       // X position of the health bar
+	const float by = 28.0f;       // Y position of the health bar
+	const float bw = 380.0f;      // Maximum width of the health bar
+	const float bh = 30.0f;       // Height of the health bar
+
+	// Calculate the percentage of the player's current health
+	// ClampF ensures the value stays between 0.0 and 1.0
+	float ratio = CP_Math_ClampFloat(p->hp / p->maxHp, 0.0f, 1.0f);
+
+	// Calculate the percentage of the ghost health bar
+	float ghost = CP_Math_ClampFloat(p->ghostHp / p->maxHp, 0.0f, 1.0f);
+
+	// Change the health bar colour depending on the player's remaining health
+	CP_Color hpCol = ratio > 0.5f ? Col(70, 200, 90, 255) :       // Green: Above 50% HP
+		(ratio > 0.25f ? Col(230, 190, 50, 255) :   // Yellow: Above 25% HP
+			Col(220, 50, 50, 255));    // Red: 25% HP or below
+
+	// Draw the dark background behind the health bar
+	G_Rect(bx - 4.0f, by - 4.0f, bw + 8.0f, bh + 8.0f, Col(0, 0, 0, 170));
+
+	// Draw the ghost health bar to show recently lost health
+	G_Rect(bx, by, bw * ghost, bh, Col(255, 255, 255, 130));
+
+	// Draw the actual health bar based on the player's current health
+	G_Rect(bx, by, bw * ratio, bh, hpCol);
+}
+
+
 static void DrawZombies(void)
 {
 	for (int i = 0; i < MAX_ZOMBIES; ++i)
@@ -239,6 +278,15 @@ static void DrawZombies(void)
 	}
 }
 
+static void Render(void)
+{
+	DrawBackgroundGrid();
+	DrawZombies();
+	DrawPlayerSprite();
+	DrawMouseCrosshair();
+	DrawHud();
+}
+
 /* =========================================================
    CProcessing Engine Callbacks
    ========================================================= */
@@ -249,6 +297,12 @@ void Game_Init(void)
 
 	player.position = CP_Vector_Set(windowWidth * 0.5f, windowHeight * 0.5f);
 	player.aimAngleRadians = 0.0f;
+
+	// Initialize player health
+	player.hp = 100.0f;       // Player starts with 100 HP
+	player.maxHp = 100.0f;    // Maximum player health is 100 HP
+	player.ghostHp = 100.0f;  // Ghost health starts at maximum HP
+
 	s_zombieColor = Col(95, 155, 85, 255);
 
 	for (int i = 0; i < MAX_ZOMBIES; ++i)
@@ -278,10 +332,7 @@ void Game_Update(void)
 
 	UpdatePlayerMovementAndAim(deltaTime);
 
-	DrawBackgroundGrid();
-	DrawZombies();
-	DrawPlayerSprite();
-	DrawMouseCrosshair();
+	Render();
 }
 
 void Game_Exit(void)
