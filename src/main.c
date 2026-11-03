@@ -10,13 +10,12 @@
 
 #include "cprocessing.h"
 #include "mainmenu.h"
-#include "game.h"          
+#include "game.h"
 
 int main(void)
 {
-    // Points directly to the Zombie Showcase in game.c
-    CP_Engine_SetNextGameState(Game_Init, Game_Update, Game_Exit);
-    CP_System_SetWindowSize(1600, 900);
-    CP_Engine_Run(0);
-    return 0;
+	CP_Engine_SetNextGameState(Game_Init, Game_Update, Game_Exit);
+	CP_System_SetWindowSize(1600, 900);
+	CP_Engine_Run(0);
+	return 0;
 }

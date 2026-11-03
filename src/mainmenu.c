@@ -8,12 +8,8 @@
 // Copyright © 2026 DigiPen, All rights reserved.
 //---------------------------------------------------------
 
-#include "cprocessing.h"
-#include "utils.h"
-#include "game.h"
-#include "mainmenu.h"
-
-static CP_Font myFont;
+#if 0
+CP_Font myFont;
 
 void Main_Menu_Init(void)
 {
@@ -73,3 +69,5 @@ void Main_Menu_Exit(void)
 {
     CP_Font_Free(myFont);
 }
+
+#endif
