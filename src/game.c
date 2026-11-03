@@ -15,6 +15,7 @@
 #include "mainmenu.h" // Include the main menu state function
 #include <math.h>
 #include "game.h"
+#include <stdbool.h>
 
 /* =========================================================
    TUNING CONSTANTS
