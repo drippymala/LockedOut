@@ -302,6 +302,7 @@ void Main_Menu_Exit(void)
 {
 
     CP_Font_Free(myFont);
+	myFont = NULL;
 }
 
 //#endif
