@@ -9,6 +9,7 @@
 // Copyright © 2026 DigiPen, All rights reserved
 //---------------------------------------------------------
 
+#include <stdio.h>
 #include "cprocessing.h"
 #include "utils.h"       // Fixes C4013 'IsAreaClicked' undefined
 #include "game.h"        // Matches the Game_Init / Game_Update / Game_Exit declarations
@@ -25,6 +26,18 @@
 #define MAX_ZOMBIES          128
 #define MAX_BULLETS       512 // max amt of bullets
 #define MAX_PIERCE_TRACK   16 // to prevent hitting the same zombie multiple times with piercing bullets
+
+// ---- health cost per shot (every bullet costs the player's own blood) ----
+#define PISTOL_COST                2.0f    // flat, cheap
+#define TARGET_LOCK_COST           9.0f    // placeholder until the charge mechanic exists
+#define PARASITE_COST              4.0f    // paid up front...
+#define PARASITE_REFUND            5.0f    // ...and refunded per hit
+#define MINIGUN_COST_MIN           0.4f    // cost per bullet when you start firing
+#define MINIGUN_COST_MAX           1.6f    // ...and after MINIGUN_RAMP_TIME of holding
+#define MINIGUN_RAMP_TIME          3.0f
+#define HEALTH_LASER_COST_PERCENT  0.20f   // placeholder: % of CURRENT hp per shot
+#define HEALTH_LASER_COST_MIN      5.0f
+#define GHOST_DRAIN_RATE           70.0f   // how fast the pale "ghost" bar catches up (HP per second)
 
 typedef enum { Z_WALKER, Z_RUNNER, Z_BRUTE } ZombieType;
 typedef enum { W_PISTOL, W_TARGET_LOCK, W_PARASITE, W_MINIGUN, W_HEALTH_LASER, W_COUNT} WeaponType;
@@ -70,11 +83,16 @@ typedef struct
 {
 	CP_Vector position;
 	float     aimAngleRadians;
+
 	float hp;       // Player's current health
 	float maxHp;    // Player's maximum health
 	float ghostHp;  // Health value used to display the trailing ghost bar
+
 	WeaponType weapon;//let player be able to use different weapons.
 	bool owned[W_COUNT];
+
+	float rampTime;     // minigun: how long the trigger has been held
+	float noFireFlash;  // red flash on the health bar when a shot is refused
 } Player;
 
 typedef struct
@@ -99,6 +117,29 @@ static void SpawnBullet(WeaponType type, CP_Vector pos, float angle, float speed
 static float s_fireTimer = 0.0f;
 
 /* ---------- Logic & Rendering ---------- */
+
+// How much HP the selected weapon would cost to fire right now.
+static float GetShotCost(WeaponType w)
+{
+	switch (w)
+	{
+	case W_PISTOL:      return PISTOL_COST;
+	case W_TARGET_LOCK: return TARGET_LOCK_COST;
+	case W_PARASITE:    return PARASITE_COST;
+	case W_MINIGUN:     // starts cheap, gets pricier the longer you hold
+	{
+		float t = CP_Math_ClampFloat(player.rampTime / MINIGUN_RAMP_TIME, 0.0f, 1.0f);
+		return MINIGUN_COST_MIN + (MINIGUN_COST_MAX - MINIGUN_COST_MIN) * t;
+	}
+	case W_HEALTH_LASER: // scales with how healthy you are
+	{
+		float cost = player.hp * HEALTH_LASER_COST_PERCENT;
+		return (cost > HEALTH_LASER_COST_MIN) ? cost : HEALTH_LASER_COST_MIN;
+	}
+	default: return 1.0f;
+	}
+}
+
 static void UpdatePlayerMovementAndAim(float deltaTime)
 {
 	CP_Vector inputDirection = CP_Vector_Set(0.0f, 0.0f);
@@ -116,21 +157,44 @@ static void UpdatePlayerMovementAndAim(float deltaTime)
 	if (CP_Input_KeyTriggered(KEY_5) && player.owned[W_HEALTH_LASER]) player.weapon = W_HEALTH_LASER;
 
 	//for shooting / left click
+	bool trigger = CP_Input_MouseDown(MOUSE_BUTTON_LEFT);
+
+	// Minigun ramp-up: the longer the trigger is held, the more each bullet costs
+	if (trigger && player.weapon == W_MINIGUN)
+	{
+		player.rampTime += deltaTime;
+	}
+	else
+	{
+		player.rampTime -= deltaTime * 1.5f;     // cools down faster than it heats up
+		if (player.rampTime < 0.0f) player.rampTime = 0.0f;
+	}
+
 	// Decrease fire rate cooldown
 	s_fireTimer -= deltaTime;
 
 	// Shoot when holding or clicking Left Mouse Button
-	if (CP_Input_MouseDown(MOUSE_BUTTON_LEFT) && s_fireTimer <= 0.0f)
+	if (trigger && s_fireTimer <= 0.0f)
 	{
-		const WeaponDef* def = &s_weapons[player.weapon];
+		float cost = GetShotCost(player.weapon);
 
-		// Bullet emerges from the gun tip
-		CP_Vector aimDir = CP_Vector_Set(cosf(player.aimAngleRadians), sinf(player.aimAngleRadians));
-		float barrelReach = PLAYER_RADIUS + GUN_BARREL_LENGTH;
-		CP_Vector gunTipPos = CP_Vector_Add(player.position, CP_Vector_Scale(aimDir, barrelReach));
+		if (player.hp - cost < 1.0f)             // you can't shoot yourself to death
+		{
+			player.noFireFlash = 0.35f;          // flash the health bar red
+			s_fireTimer = 0.2f;                  // try again shortly
+		}
+		else
+		{
+			player.hp -= cost;                   // every shot costs health
 
-		SpawnBullet(player.weapon, gunTipPos, player.aimAngleRadians, 1.0f, 1.0f);
-		s_fireTimer = def->fireDelay; // reset fire cooldown
+			// Bullet emerges from the gun tip
+			CP_Vector aimDir = CP_Vector_Set(cosf(player.aimAngleRadians), sinf(player.aimAngleRadians));
+			float barrelReach = PLAYER_RADIUS + GUN_BARREL_LENGTH;
+			CP_Vector gunTipPos = CP_Vector_Add(player.position, CP_Vector_Scale(aimDir, barrelReach));
+
+			SpawnBullet(player.weapon, gunTipPos, player.aimAngleRadians, 1.0f, 1.0f);
+			s_fireTimer = s_weapons[player.weapon].fireDelay; // reset fire cooldown
+		}
 	}
 
 	CP_Vector moveDirection = GetNormalizedDirection(inputDirection);
@@ -143,6 +207,12 @@ static void UpdatePlayerMovementAndAim(float deltaTime)
 	float mouseDeltaX = CP_Input_GetMouseX() - player.position.x;
 	float mouseDeltaY = CP_Input_GetMouseY() - player.position.y;
 	player.aimAngleRadians = atan2f(mouseDeltaY, mouseDeltaX);
+
+	// refused-shot flash fades out
+	player.noFireFlash = CP_Math_ClampFloat(player.noFireFlash - deltaTime, 0.0f, 1.0f);
+
+	// the pale "ghost" bar trails behind the real bar so you can see how much a shot cost
+	player.ghostHp = CP_Math_ClampFloat(player.ghostHp - GHOST_DRAIN_RATE * deltaTime, player.hp, player.maxHp);
 }
 
 static void DrawBackgroundGrid(void)
@@ -221,6 +291,20 @@ static void DrawHud(void)
 
 	// Draw the actual health bar based on the player's current health
 	G_Rect(bx, by, bw * ratio, bh, hpCol);
+
+	// flash the bar red when a shot is refused because it would kill you
+	if (player.noFireFlash > 0.0f)
+	{
+		G_Rect(bx - 4.0f, by - 4.0f, bw + 8.0f, bh + 8.0f, Col(255, 0, 0, (int)(player.noFireFlash / 0.35f * 200.0f)));
+	}
+
+	// numbers on the bar
+	snprintf(buf, sizeof(buf), "HP %.0f / %.0f", player.hp, player.maxHp);
+	G_Text(buf, bx + bw * 0.5f, by + bh * 0.5f, 22.0f, Col(255, 255, 255, 255), AL_CENTER);
+
+	// selected weapon and what the next shot costs
+	snprintf(buf, sizeof(buf), "%s: %s  -  costs %.1f HP now", s_weapons[player.weapon].name, s_weapons[player.weapon].drain, GetShotCost(player.weapon));
+	G_Text(buf, windowWidth * 0.5f, windowHeight - 22.0f, 24.0f, Col(230, 230, 230, 255), AL_CENTER);
 }
 
 static void DrawPauseOverlay(void)
@@ -324,7 +408,7 @@ static void UpdateBullets(float dt)
 				// Parasite weapon heals player
 				if (b->type == W_PARASITE)
 				{
-					player.hp = CP_Math_ClampFloat(player.hp + 5.0f, 0.0f, player.maxHp);
+					player.hp = CP_Math_ClampFloat(player.hp + PARASITE_REFUND, 0.0f, player.maxHp);
 				}
 
 				// Check if zombie died
@@ -447,6 +531,9 @@ void Game_Init(void)
 	player.hp = 100.0f;       // Player starts with 100 HP
 	player.maxHp = 100.0f;    // Maximum player health is 100 HP
 	player.ghostHp = 100.0f;  // Ghost health starts at maximum HP
+	player.rampTime = 0.0f;
+	player.noFireFlash = 0.0f;
+	s_fireTimer = 0.3f;
 
 	//weapon ownership and selection
 	for (int i = 0; i < W_COUNT; ++i)
