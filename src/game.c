@@ -6,7 +6,7 @@
 //          game state, including initialization, game updates, and 
 //          exit functions.
 //
-// Copyright Â© 2026 DigiPen, All rights reserved
+// Copyright © 2026 DigiPen, All rights reserved
 //---------------------------------------------------------
 
 #include "cprocessing.h"
@@ -23,6 +23,47 @@
 #define GRID_CELL_SIZE       100.0f
 #define MAX_DELTA_TIME       0.05f
 #define MAX_ZOMBIES          128
+#define MAX_BULLETS       512
+
+typedef enum { Z_WALKER, Z_RUNNER, Z_BRUTE } ZombieType;
+typedef enum { W_PISTOL, W_SHOTGUN, W_LEECH, W_MINIGUN, W_RAILGUN, W_COUNT } WeaponType;
+
+//weapons
+typedef struct
+{
+	const char* name;
+	const char* drain;      // text describing how it drains health
+	float fireDelay;        // seconds between shots
+	float speed;            // bullet speed (px/s)
+	float radius;
+	float damage;
+	float life;             // seconds before the bullet disappears
+	int   pellets;
+	float spreadDeg;        // total cone angle
+	int   pierce;           // extra zombies a bullet can go through
+	int   r, g, b;
+} WeaponDef;
+
+static const WeaponDef s_weapons[W_COUNT] =
+{
+	//  name       drain description               delay   speed  rad  dmg   life   pel spread pierce   colour
+	{ "PISTOL",  "flat cost per shot",            0.25f,  900.0f, 5.0f, 20.0f, 1.20f, 1,  1.5f,  0,  255, 230, 120 },
+	{ "SHOTGUN", "big cost per blast",            0.75f,  800.0f, 4.0f, 11.0f, 0.45f, 7, 26.0f,  0,  255, 150,  60 },
+	{ "LEECH",   "pay up front, refunded on hit", 0.40f,  750.0f, 6.0f, 12.0f, 1.20f, 1,  2.0f,  0,  110, 255, 140 },
+	{ "MINIGUN", "cost ramps up while held",      0.085f,1000.0f, 4.0f,  9.0f, 1.00f, 1,  5.0f,  0,  120, 200, 255 },
+	{ "RAILGUN", "% of your current health",      1.10f, 2400.0f, 4.0f,120.0f, 0.80f, 1,  0.0f, 99,  220, 120, 255 }
+};
+
+typedef struct
+{
+	bool active;
+	WeaponType type;
+	CP_Vector pos, vel;
+	float life, damage, radius;
+	int pierceLeft;
+	int hitIds[MAX_PIERCE_TRACK];
+	int hitCount;
+} Bullet;
 
 typedef struct
 {
@@ -33,8 +74,6 @@ typedef struct
 	float ghostHp;  // Health value used to display the trailing ghost bar
 
 } Player;
-
-typedef enum { Z_WALKER, Z_RUNNER, Z_BRUTE } ZombieType;
 
 typedef struct
 {
