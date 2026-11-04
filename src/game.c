@@ -23,10 +23,11 @@
 #define GRID_CELL_SIZE       100.0f
 #define MAX_DELTA_TIME       0.05f
 #define MAX_ZOMBIES          128
-#define MAX_BULLETS       512
+#define MAX_BULLETS       512 //max amt of bullets
+#define MAX_PIERCE_TRACK   16 //to prevent hitting the same zombie multiple times with piercing bullets
 
 typedef enum { Z_WALKER, Z_RUNNER, Z_BRUTE } ZombieType;
-typedef enum { W_PISTOL, W_SHOTGUN, W_LEECH, W_MINIGUN, W_RAILGUN, W_COUNT } WeaponType;
+typedef enum { W_PISTOL, W_TARGET_LOCK, W_PARASITE, W_MINIGUN, W_HEALTH_LASER, W_COUNT} WeaponType;
 
 //weapons
 typedef struct
@@ -46,22 +47,22 @@ typedef struct
 
 static const WeaponDef s_weapons[W_COUNT] =
 {
-	//  name       drain description               delay   speed  rad  dmg   life   pel spread pierce   colour
-	{ "PISTOL",  "flat cost per shot",            0.25f,  900.0f, 5.0f, 20.0f, 1.20f, 1,  1.5f,  0,  255, 230, 120 },
-	{ "SHOTGUN", "big cost per blast",            0.75f,  800.0f, 4.0f, 11.0f, 0.45f, 7, 26.0f,  0,  255, 150,  60 },
-	{ "LEECH",   "pay up front, refunded on hit", 0.40f,  750.0f, 6.0f, 12.0f, 1.20f, 1,  2.0f,  0,  110, 255, 140 },
-	{ "MINIGUN", "cost ramps up while held",      0.085f,1000.0f, 4.0f,  9.0f, 1.00f, 1,  5.0f,  0,  120, 200, 255 },
-	{ "RAILGUN", "% of your current health",      1.10f, 2400.0f, 4.0f,120.0f, 0.80f, 1,  0.0f, 99,  220, 120, 255 }
+	//   name             drain description                          delay    speed    rad    dmg    life   pel spread pierce   colour (R, G, B)
+	{ "PISTOL",       "flat cost per shot",                      0.25f,   900.0f,  5.0f,  20.0f, 1.20f,  1,  1.5f,   0,   255, 230, 120 },
+	{ "TARGET LOCK",  "health bar charges a homing shot",        0.60f,   850.0f,  6.0f,  35.0f, 1.50f,  1,  0.0f,   0,   255, 150,  60 },
+	{ "PARASITE",     "pay up front, refunded on hit",           0.40f,   750.0f,  6.0f,  12.0f, 1.20f,  1,  2.0f,   0,   110, 255, 140 },
+	{ "MINIGUN",      "cost increases while held",               0.085f, 1000.0f,  4.0f,   9.0f, 1.00f,  1,  5.0f,   0,   120, 200, 255 },
+	{ "HEALTH LASER", "health bar extends into a laser beam",    1.10f,  2400.0f,  4.0f, 120.0f, 0.80f,  1,  0.0f,  99,   220, 120, 255 }
 };
 
 typedef struct
 {
 	bool active;
 	WeaponType type;
-	CP_Vector pos, vel;
+	CP_Vector pos, vel; //velocity of the bullet
 	float life, damage, radius;
 	int pierceLeft;
-	int hitIds[MAX_PIERCE_TRACK];
+	int hitIds[MAX_PIERCE_TRACK]; 
 	int hitCount;
 } Bullet;
 
@@ -72,7 +73,8 @@ typedef struct
 	float hp;       // Player's current health
 	float maxHp;    // Player's maximum health
 	float ghostHp;  // Health value used to display the trailing ghost bar
-
+	WeaponType weapon;//let player be able to use different weapons.
+	bool owned[W_COUNT];
 } Player;
 
 typedef struct
@@ -92,7 +94,8 @@ static CP_Color s_zombieColor;
 static float    windowWidth = 1600.0f;
 static float    windowHeight = 900.0f;
 static Player   player;
-
+static void SpawnBullet(WeaponType type, CP_Vector pos, float angle, float speedMul, float lifeMul);
+static float s_fireTimer = 0.0f;
 
 /* ---------- Helper Functions ---------- */
 static CP_Color Col(int r, int g, int b, int a)
@@ -163,6 +166,31 @@ static void UpdatePlayerMovementAndAim(float deltaTime)
 	if (CP_Input_KeyDown(KEY_S)) inputDirection.y += 1.0f;
 	if (CP_Input_KeyDown(KEY_A)) inputDirection.x -= 1.0f;
 	if (CP_Input_KeyDown(KEY_D)) inputDirection.x += 1.0f;
+
+	//for guns
+	if (CP_Input_KeyTriggered(KEY_1) && player.owned[W_PISTOL])       player.weapon = W_PISTOL;
+	if (CP_Input_KeyTriggered(KEY_2) && player.owned[W_TARGET_LOCK])  player.weapon = W_TARGET_LOCK;
+	if (CP_Input_KeyTriggered(KEY_3) && player.owned[W_PARASITE])     player.weapon = W_PARASITE;
+	if (CP_Input_KeyTriggered(KEY_4) && player.owned[W_MINIGUN])      player.weapon = W_MINIGUN;
+	if (CP_Input_KeyTriggered(KEY_5) && player.owned[W_HEALTH_LASER]) player.weapon = W_HEALTH_LASER;
+
+	//for shooting / left click
+	// Decrease fire rate cooldown
+	s_fireTimer -= deltaTime;
+
+	// Shoot when holding or clicking Left Mouse Button
+	if (CP_Input_MouseDown(MOUSE_BUTTON_LEFT) && s_fireTimer <= 0.0f)
+	{
+		const WeaponDef* def = &s_weapons[player.weapon];
+
+		// Bullet emerges from the gun tip
+		CP_Vector aimDir = CP_Vector_Set(cosf(player.aimAngleRadians), sinf(player.aimAngleRadians));
+		float barrelReach = PLAYER_RADIUS + GUN_BARREL_LENGTH;
+		CP_Vector gunTipPos = CP_Vector_Add(player.position, CP_Vector_Scale(aimDir, barrelReach));
+
+		SpawnBullet(player.weapon, gunTipPos, player.aimAngleRadians, 1.0f, 1.0f);
+		s_fireTimer = def->fireDelay; // reset fire cooldown
+	}
 
 	CP_Vector moveDirection = GetNormalizedDirection(inputDirection);
 	CP_Vector velocity = CP_Vector_Scale(moveDirection, PLAYER_SPEED * deltaTime);
@@ -254,7 +282,118 @@ static void DrawHud(void)
 	G_Rect(bx, by, bw * ratio, bh, hpCol);
 }
 
+//BULLETS
+static Bullet M_bullets[MAX_BULLETS];
 
+static void SpawnBullet(WeaponType type, CP_Vector pos, float angle, float speedMul, float lifeMul)
+{
+	//check which weapons 
+	const WeaponDef* def = &s_weapons[type];
+	//speed of bullet is weapon speed * speed multiplier (for powerups)
+	float spd = def->speed * speedMul;
+
+	for (int i = 0; i < MAX_BULLETS; ++i){
+		// If this slot is already active (flying on screen), skip it
+		if (M_bullets[i].active) continue;
+
+		M_bullets[i] = (Bullet){
+			.active = true,
+			.type = type,
+			.pos = pos,
+			.vel = CP_Vector_Set(cosf(angle) * spd, sinf(angle) * spd),
+			.life = def->life * lifeMul,
+			.damage = def->damage,
+			.radius = def->radius,
+			.pierceLeft = def->pierce
+		};
+		return;
+	}
+}
+
+//set true false for if bullet has hit a zombie. 
+//let bullet pierce thru zombie once and only damage once until bullet leaves zombie.
+static bool BulletAlreadyHit(const Bullet* b, int zombieId)
+{
+	int n;
+	if (b->hitCount < MAX_PIERCE_TRACK){
+		n = b->hitCount;
+	}else{
+		n = MAX_PIERCE_TRACK;
+	}for (int i = 0; i < n; ++i){
+		if (b->hitIds[i] == zombieId) return true; // Already damaged this zombie, skip!
+	}
+	return false;
+}
+
+static void DrawBullets(void)
+{
+	for (int i = 0; i < MAX_BULLETS; ++i)
+	{
+		const Bullet* b = &M_bullets[i];
+		if (!b->active) continue;
+		//color of buller based on weapon type
+		const WeaponDef* def = &s_weapons[b->type];
+		G_Circle(b->pos.x, b->pos.y, b->radius, Col(def->r, def->g, def->b, 255));
+	}
+}
+
+static void UpdateBullets(float dt)
+{
+	for (int i = 0; i < MAX_BULLETS; ++i)
+	{
+		Bullet* b = &M_bullets[i];
+		//check if bullet is active
+		if (!b->active) continue;
+
+		// 1. Move the bullet, bullet vector is scaled by delta time to ensure consistent movement regardless of frame rate
+		b->pos = CP_Vector_Add(b->pos, CP_Vector_Scale(b->vel, dt));
+		b->life -= dt;
+
+		// 2. Despawn if lifetime runs out or it leaves the screen
+		if (b->life <= 0.0f ||
+			b->pos.x < 0.0f || b->pos.x > windowWidth ||
+			b->pos.y < 0.0f || b->pos.y > windowHeight)
+		{
+			//cahnge bullet to inactive so slot can be used for another bullet
+			b->active = false;
+			continue;
+		}
+
+		// 3. Simple Zombie Hit Check
+		for (int z = 0; z < MAX_ZOMBIES; ++z)
+		{
+			if (!s_zombies[z].active) continue;
+
+			// Simple distance check: are the circles touching?
+			float hitDist = b->radius + s_zombies[z].radius;
+			if (CP_Vector_Distance(b->pos, s_zombies[z].pos) <= hitDist)
+			{
+				// Hurt zombie & trigger hit flash
+				s_zombies[z].hp -= b->damage;
+				s_zombies[z].hitFlash = 0.1f;
+
+				// Parasite weapon heals player
+				if (b->type == W_PARASITE)
+				{
+					player.hp = CP_Math_ClampFloat(player.hp + 5.0f, 0.0f, player.maxHp);
+				}
+
+				// Check if zombie died
+				if (s_zombies[z].hp <= 0.0f)
+				{
+					s_zombies[z].active = false;
+				}
+
+				// Bullet disappears on hit
+				b->active = false;
+				break; // Stop checking other zombies for this bullet
+			}
+		}
+	}
+}
+//weapon HUD
+
+//ZOMBIES
 static void DrawZombies(void)
 {
 	for (int i = 0; i < MAX_ZOMBIES; ++i)
@@ -269,9 +408,12 @@ static void DrawZombies(void)
 		CP_Color skinColor;
 		float armW, armL, armOffsetY;
 
+		//check zombie type
 		if (z->type == Z_WALKER)
 		{
+			//check if hit if hit chang ecolor to white for a flash effect
 			skinColor = (z->hitFlash > 0.0f) ? Col(255, 255, 255, 255) : Col(95, 155, 85, 255);
+			//move arms to replicate getting hit
 			armW = 8.0f;
 			armL = r * 1.5f;
 			armOffsetY = 0.0f;
@@ -291,9 +433,11 @@ static void DrawZombies(void)
 			armOffsetY = r * 0.2f;
 		}
 
+		//draw zombie arms
 		G_Rect(x - r - armW * 0.5f, y - armL + armOffsetY, armW, armL, skinColor);
 		G_Rect(x + r - armW * 0.5f, y - armL + armOffsetY, armW, armL, skinColor);
 
+		//draw zombie arm outlines
 		CP_Settings_RectMode(CP_POSITION_CORNER);
 		CP_Settings_NoFill();
 		CP_Settings_Stroke(Col(20, 35, 20, 255));
@@ -301,10 +445,11 @@ static void DrawZombies(void)
 		CP_Graphics_DrawRect(x - r - armW * 0.5f, y - armL + armOffsetY, armW, armL);
 		CP_Graphics_DrawRect(x + r - armW * 0.5f, y - armL + armOffsetY, armW, armL);
 		CP_Settings_NoStroke();
-
+		//zombie body
 		G_Circle(x, y, r, skinColor);
 		G_Ring(x, y, r, 2.0f, Col(20, 35, 20, 255));
 
+		//draw zombie health bar if not full
 		if (z->hp < z->maxHp)
 		{
 			float barW = r * 2.4f;
@@ -321,6 +466,7 @@ static void Render(void)
 {
 	DrawBackgroundGrid();
 	DrawZombies();
+	DrawBullets();
 	DrawPlayerSprite();
 	DrawMouseCrosshair();
 	DrawHud();
@@ -341,6 +487,20 @@ void Game_Init(void)
 	player.hp = 100.0f;       // Player starts with 100 HP
 	player.maxHp = 100.0f;    // Maximum player health is 100 HP
 	player.ghostHp = 100.0f;  // Ghost health starts at maximum HP
+
+	//weapon ownership and selection
+	for (int i = 0; i < W_COUNT; ++i)
+	{
+		player.owned[i] = false;
+	}
+	player.owned[W_PISTOL] = true;   // Starter weapon
+	player.weapon = W_PISTOL;
+
+	//clear starting bullets
+	for (int i = 0; i < MAX_BULLETS; ++i)
+	{
+		M_bullets[i].active = false;
+	}
 
 	s_zombieColor = Col(95, 155, 85, 255);
 
@@ -369,7 +529,8 @@ void Game_Update(void)
 		return;
 	}
 
-	UpdatePlayerMovementAndAim(deltaTime);
+	UpdatePlayerMovementAndAim(deltaTime);	
+	UpdateBullets(deltaTime);
 
 	Render();
 }
