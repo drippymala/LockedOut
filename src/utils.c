@@ -56,3 +56,62 @@ int AreCirclesIntersecting(float c1_x, float c1_y, float r1, float c2_x, float c
     }
     return 0;
 }
+
+CP_Color Col(int r, int g, int b, int a)
+{
+	return CP_Color_Create(r, g, b, a);
+}
+
+CP_Vector GetNormalizedDirection(CP_Vector direction)
+{
+	float length = CP_Vector_Length(direction);
+	if (length < 0.0001f)
+	{
+		return CP_Vector_Set(0.0f, 0.0f);
+	}
+	return CP_Vector_Normalize(direction);
+}
+
+void DrawFilledCircle(float centerX, float centerY, float radius, CP_Color color)
+{
+	CP_Settings_EllipseMode(CP_POSITION_CENTER);
+	CP_Settings_NoStroke();
+	CP_Settings_Fill(color);
+	CP_Graphics_DrawCircle(centerX, centerY, radius * 2.0f);
+}
+
+void DrawCircleOutline(float centerX, float centerY, float radius, float lineThickness, CP_Color color)
+{
+	CP_Settings_EllipseMode(CP_POSITION_CENTER);
+	CP_Settings_NoFill();
+	CP_Settings_Stroke(color);
+	CP_Settings_StrokeWeight(lineThickness);
+	CP_Graphics_DrawCircle(centerX, centerY, radius * 2.0f);
+	CP_Settings_NoStroke();
+}
+
+void DrawColoredLine(float startX, float startY, float endX, float endY, float lineThickness, CP_Color color)
+{
+	CP_Settings_Stroke(color);
+	CP_Settings_StrokeWeight(lineThickness);
+	CP_Graphics_DrawLine(startX, startY, endX, endY);
+	CP_Settings_NoStroke();
+}
+
+void G_Circle(float x, float y, float radius, CP_Color c)
+{
+	DrawFilledCircle(x, y, radius, c);
+}
+
+void G_Ring(float x, float y, float radius, float weight, CP_Color c)
+{
+	DrawCircleOutline(x, y, radius, weight, c);
+}
+
+void G_Rect(float x, float y, float w, float h, CP_Color c)
+{
+	CP_Settings_RectMode(CP_POSITION_CORNER);
+	CP_Settings_NoStroke();
+	CP_Settings_Fill(c);
+	CP_Graphics_DrawRect(x, y, w, h);
+}
