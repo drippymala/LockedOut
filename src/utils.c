@@ -111,3 +111,16 @@ void G_Rect(float x, float y, float w, float h, CP_Color c)
 	CP_Settings_Fill(c);
 	CP_Graphics_DrawRect(x, y, w, h);
 }
+
+void G_Text(const char* s, float x, float y, float size, CP_Color c, Align a)
+{
+	CP_Settings_TextSize(size);
+	CP_Settings_Fill(c);
+	switch (a)
+	{
+	case AL_LEFT:   CP_Settings_TextAlignment(CP_TEXT_ALIGN_H_LEFT, CP_TEXT_ALIGN_V_MIDDLE); break;
+	case AL_CENTER: CP_Settings_TextAlignment(CP_TEXT_ALIGN_H_CENTER, CP_TEXT_ALIGN_V_MIDDLE); break;
+	default:        CP_Settings_TextAlignment(CP_TEXT_ALIGN_H_RIGHT, CP_TEXT_ALIGN_V_MIDDLE); break;
+	}
+	CP_Font_DrawText(s, x, y);
+}

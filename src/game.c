@@ -23,8 +23,8 @@
 #define GRID_CELL_SIZE       100.0f
 #define MAX_DELTA_TIME       0.05f
 #define MAX_ZOMBIES          128
-#define MAX_BULLETS       512 //max amt of bullets
-#define MAX_PIERCE_TRACK   16 //to prevent hitting the same zombie multiple times with piercing bullets
+#define MAX_BULLETS       512 // max amt of bullets
+#define MAX_PIERCE_TRACK   16 // to prevent hitting the same zombie multiple times with piercing bullets
 
 typedef enum { Z_WALKER, Z_RUNNER, Z_BRUTE } ZombieType;
 typedef enum { W_PISTOL, W_TARGET_LOCK, W_PARASITE, W_MINIGUN, W_HEALTH_LASER, W_COUNT} WeaponType;
@@ -94,8 +94,10 @@ static CP_Color s_zombieColor;
 static float    windowWidth = 1600.0f;
 static float    windowHeight = 900.0f;
 static Player   player;
+static bool     s_paused = false;   // true while the pause menu is showing
 static void SpawnBullet(WeaponType type, CP_Vector pos, float angle, float speedMul, float lifeMul);
 static float s_fireTimer = 0.0f;
+
 /* ---------- Logic & Rendering ---------- */
 static void UpdatePlayerMovementAndAim(float deltaTime)
 {
@@ -219,6 +221,14 @@ static void DrawHud(void)
 
 	// Draw the actual health bar based on the player's current health
 	G_Rect(bx, by, bw * ratio, bh, hpCol);
+}
+
+static void DrawPauseOverlay(void)
+{
+	// dim the whole screen, then draw the pause text on top
+	G_Rect(0.0f, 0.0f, windowWidth, windowHeight, Col(0, 0, 0, 150));
+	G_Text("PAUSED", windowWidth * 0.5f, windowHeight * 0.42f, 100.0f, Col(255, 255, 255, 255), AL_CENTER);
+	G_Text("ESC - Resume      M - Main Menu", windowWidth * 0.5f, windowHeight * 0.42f + 90.0f, 34.0f, Col(220, 220, 220, 255), AL_CENTER);
 }
 
 //BULLETS
@@ -409,6 +419,14 @@ static void Render(void)
 	DrawPlayerSprite();
 	DrawMouseCrosshair();
 	DrawHud();
+
+	if (s_paused) DrawPauseOverlay();
+	else          DrawMouseCrosshair();   // hide the crosshair while paused
+}
+
+static void GoToMenu(void)
+{
+	CP_Engine_SetNextGameState(Main_Menu_Init, Main_Menu_Update, Main_Menu_Exit);
 }
 
 /* =========================================================
@@ -416,6 +434,9 @@ static void Render(void)
    ========================================================= */
 void Game_Init(void)
 {
+	Font_EnsureLoaded();   // the menu frees its font on exit, so reload it for the pause text
+	s_paused = false;      // always start a new game unpaused
+
 	windowWidth = (float)CP_System_GetWindowWidth();
 	windowHeight = (float)CP_System_GetWindowHeight();
 
@@ -462,14 +483,21 @@ void Game_Update(void)
 		CP_Engine_SetNextGameState(Main_Menu_Init, Main_Menu_Update, Main_Menu_Exit);
 		return;
 	}
-	if (CP_Input_KeyTriggered(KEY_ESCAPE))
+
+	// ESC toggles pause; while paused, M goes back to the main menu
+	if (CP_Input_KeyTriggered(KEY_ESCAPE)) s_paused = !s_paused;
+	if (s_paused && CP_Input_KeyTriggered(KEY_M))
 	{
-		CP_Engine_Terminate();
+		GoToMenu();
 		return;
 	}
 
-	UpdatePlayerMovementAndAim(deltaTime);	
-	UpdateBullets(deltaTime);
+	// only advance the game when not paused (Render below still draws the frozen frame)
+	if (!s_paused)
+	{
+		UpdatePlayerMovementAndAim(deltaTime);
+		UpdateBullets(deltaTime);
+	}
 
 	Render();
 }

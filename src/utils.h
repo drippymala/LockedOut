@@ -29,3 +29,7 @@ void DrawColoredLine(float startX, float startY, float endX, float endY, float l
 void G_Circle(float x, float y, float radius, CP_Color c);
 void G_Ring(float x, float y, float radius, float weight, CP_Color c);
 void G_Rect(float x, float y, float w, float h, CP_Color c);
+
+typedef enum { AL_LEFT, AL_CENTER, AL_RIGHT } Align;   // text alignment for G_Text
+
+void G_Text(const char* s, float x, float y, float size, CP_Color c, Align a);

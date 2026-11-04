@@ -294,7 +294,7 @@ void Main_Menu_Update(void)
 		M_Circle(rx + 8.0f * s_k, y, 8.0f * s_k, CP_Color_Create(s_pickupLegend[i].r, s_pickupLegend[i].g, s_pickupLegend[i].b, 255));
 		M_Text(s_pickupLegend[i].text, rx + 28.0f * s_k, y, 25.0f * s_k, CP_Color_Create(220, 220, 220, 255), false);
 	}
-	M_Text("WASD - move     Mouse - aim     Hold LEFT CLICK - shoot     1-5 / Q / E - switch bullet     P - pause",
+	M_Text("WASD - Move     Mouse - Aim     Hold LEFT CLICK - Shoot     1-5 - Switch bullet     ESC - Pause",
 		s_menuW * 0.5f, s_menuH - 40.0f * s_k, 24.0f * s_k, CP_Color_Create(180, 180, 180, 255), true);
 }
 
