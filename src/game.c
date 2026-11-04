@@ -6,7 +6,7 @@
 //          game state, including initialization, game updates, and 
 //          exit functions.
 //
-// Copyright © 2026 DigiPen, All rights reserved
+// Copyright Â© 2026 DigiPen, All rights reserved
 //---------------------------------------------------------
 
 #include "cprocessing.h"
@@ -96,67 +96,6 @@ static float    windowHeight = 900.0f;
 static Player   player;
 static void SpawnBullet(WeaponType type, CP_Vector pos, float angle, float speedMul, float lifeMul);
 static float s_fireTimer = 0.0f;
-
-/* ---------- Helper Functions ---------- */
-static CP_Color Col(int r, int g, int b, int a)
-{
-	return CP_Color_Create(r, g, b, a);
-}
-
-static CP_Vector GetNormalizedDirection(CP_Vector direction)
-{
-	float length = CP_Vector_Length(direction);
-	if (length < 0.0001f)
-	{
-		return CP_Vector_Set(0.0f, 0.0f);
-	}
-	return CP_Vector_Normalize(direction);
-}
-
-static void DrawFilledCircle(float centerX, float centerY, float radius, CP_Color color)
-{
-	CP_Settings_EllipseMode(CP_POSITION_CENTER);
-	CP_Settings_NoStroke();
-	CP_Settings_Fill(color);
-	CP_Graphics_DrawCircle(centerX, centerY, radius * 2.0f);
-}
-
-static void DrawCircleOutline(float centerX, float centerY, float radius, float lineThickness, CP_Color color)
-{
-	CP_Settings_EllipseMode(CP_POSITION_CENTER);
-	CP_Settings_NoFill();
-	CP_Settings_Stroke(color);
-	CP_Settings_StrokeWeight(lineThickness);
-	CP_Graphics_DrawCircle(centerX, centerY, radius * 2.0f);
-	CP_Settings_NoStroke();
-}
-
-static void DrawColoredLine(float startX, float startY, float endX, float endY, float lineThickness, CP_Color color)
-{
-	CP_Settings_Stroke(color);
-	CP_Settings_StrokeWeight(lineThickness);
-	CP_Graphics_DrawLine(startX, startY, endX, endY);
-	CP_Settings_NoStroke();
-}
-
-static void G_Circle(float x, float y, float radius, CP_Color c)
-{
-	DrawFilledCircle(x, y, radius, c);
-}
-
-static void G_Ring(float x, float y, float radius, float weight, CP_Color c)
-{
-	DrawCircleOutline(x, y, radius, weight, c);
-}
-
-static void G_Rect(float x, float y, float w, float h, CP_Color c)
-{
-	CP_Settings_RectMode(CP_POSITION_CORNER);
-	CP_Settings_NoStroke();
-	CP_Settings_Fill(c);
-	CP_Graphics_DrawRect(x, y, w, h);
-}
-
 /* ---------- Logic & Rendering ---------- */
 static void UpdatePlayerMovementAndAim(float deltaTime)
 {
