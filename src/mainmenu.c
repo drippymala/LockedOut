@@ -216,7 +216,7 @@ void Main_Menu_Update(void)
 
 	for (int i = 0; i < MENU_GHOSTS; ++i)
 	{
-		// Get the address of the current ghost
+		// Get the address of the current ghost.
 		MenuGhost* g = &s_ghosts[i];
 
 		// Move the ghost according to its velocity and elapsed time
