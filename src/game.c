@@ -475,8 +475,8 @@ static void UpdateBullets(float dt)
 
 		// 2. Despawn if lifetime runs out or it leaves the screen
 		if (b->life <= 0.0f ||
-			b->pos.x < 0.0f || b->pos.x > windowWidth ||
-			b->pos.y < 0.0f || b->pos.y > windowHeight)
+			b->pos.x < -30.0f || b->pos.x > windowWidth + 30.0f ||
+			b->pos.y < -30.0f || b->pos.y > windowHeight + 30.0f)
 		{
 			//cahnge bullet to inactive so slot can be used for another bullet
 			b->active = false;
@@ -499,6 +499,10 @@ static void UpdateBullets(float dt)
 			// Hurt zombie & trigger hit flash
 			zombie->hp -= b->damage;
 			zombie->hitFlash = ZOMBIE_HIT_FLASH_TIME;
+
+			// Knockback along the bullet's direction (heavier weapons shove harder)
+			float knock = (b->type == W_TARGET_LOCK) ? 9.0f : (b->type == W_HEALTH_LASER ? 14.0f : 4.0f);
+			zombie->pos = CP_Vector_Add(zombie->pos, CP_Vector_Scale(GetNormalizedDirection(b->vel), knock));
 
 			// Parasite weapon heals player
 			if (b->type == W_PARASITE)
