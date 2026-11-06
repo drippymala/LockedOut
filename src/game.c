@@ -562,7 +562,7 @@ static void UpdateZombies(float dt)
 		float dist = CP_Vector_Length(toPlayer);
 		float touchDist = PLAYER_RADIUS + z->radius;
 
-		// player hitbox vs zombie hitbox: the ZOMBIE is shoved out of the player (as in the finished game)
+		// player hitbox vs zombie hitbox: the ZOMBIE is shoved out of the player
 		if (dist < touchDist)
 		{
 			CP_Vector n = (dist > 0.0001f) ? CP_Vector_Scale(toPlayer, -1.0f / dist) : CP_Vector_Set(-1.0f, 0.0f);
