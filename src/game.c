@@ -443,8 +443,8 @@ static void UpdateBullets(float dt)
 
 		// 2. Despawn if lifetime runs out or it leaves the screen
 		if (b->life <= 0.0f ||
-			b->pos.x < 0.0f || b->pos.x > windowWidth ||
-			b->pos.y < 0.0f || b->pos.y > windowHeight)
+			b->pos.x < -30.0f || b->pos.x > windowWidth + 30.0f ||
+			b->pos.y < -30.0f || b->pos.y > windowHeight + 30.0f)
 		{
 			//cahnge bullet to inactive so slot can be used for another bullet
 			b->active = false;
@@ -467,6 +467,10 @@ static void UpdateBullets(float dt)
 			// Hurt zombie & trigger hit flash
 			zombie->hp -= b->damage;
 			zombie->hitFlash = ZOMBIE_HIT_FLASH_TIME;
+
+			// Knockback along the bullet's direction (heavier weapons shove harder)
+			float knock = (b->type == W_TARGET_LOCK) ? 9.0f : (b->type == W_HEALTH_LASER ? 14.0f : 4.0f);
+			zombie->pos = CP_Vector_Add(zombie->pos, CP_Vector_Scale(GetNormalizedDirection(b->vel), knock));
 
 			// Parasite weapon heals player
 			if (b->type == W_PARASITE)
@@ -558,18 +562,16 @@ static void UpdateZombies(float dt)
 		float dist = CP_Vector_Length(toPlayer);
 		float touchDist = PLAYER_RADIUS + z->radius;
 
-		// player hitbox vs zombie hitbox: push the PLAYER out (zombies are standing still for now)
+		// player hitbox vs zombie hitbox: the ZOMBIE is shoved out of the player (as in the finished game)
 		if (dist < touchDist)
 		{
-			CP_Vector n = (dist > 0.0001f) ? CP_Vector_Scale(toPlayer, 1.0f / dist) : CP_Vector_Set(1.0f, 0.0f);
-			player.position = CP_Vector_Add(z->pos, CP_Vector_Scale(n, touchDist));
-			player.position.x = CP_Math_ClampFloat(player.position.x, PLAYER_RADIUS, windowWidth - PLAYER_RADIUS);
-			player.position.y = CP_Math_ClampFloat(player.position.y, PLAYER_RADIUS, windowHeight - PLAYER_RADIUS);
+			CP_Vector n = (dist > 0.0001f) ? CP_Vector_Scale(toPlayer, -1.0f / dist) : CP_Vector_Set(-1.0f, 0.0f);
+			z->pos = CP_Vector_Add(player.position, CP_Vector_Scale(n, touchDist));
 			dist = touchDist;
 		}
 
 		// bite: touching (+ small reach), off cooldown, and player not in their grace period
-		if (dist <= touchDist + 8.0f && z->attackTimer <= 0.0f && player.invuln <= 0.0f)
+		if (dist <= touchDist + 6.0f && z->attackTimer <= 0.0f && player.invuln <= 0.0f)
 		{
 			player.hp -= z->damage;
 			if (player.hp < 0.0f) player.hp = 0.0f;   // TODO: hook up Game Over Screen (Joshua) when hp hits 0
