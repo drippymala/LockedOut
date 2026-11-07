@@ -124,8 +124,14 @@ static Player   player;
 static bool     s_paused = false;   // true while the pause menu is showing
 static void SpawnBullet(WeaponType type, CP_Vector pos, float angle, float speedMul, float lifeMul);
 static void FireWeapon(void);
+static void SpawnZombie(void); 
 static float s_fireTimer = 0.0f;
 static int   s_nextZombieId = 1;        // unique id per zombie so piercing bullets don't double-hit
+static float s_zombieSpawnTimer = 0.0f; // Timer between spawns
+static int   s_wave = 0;              // Current wave number
+static int   s_toSpawn = 0;           // How many zombies left to spawn this wave
+static float s_spawnTimer = 0.0f;     // Delay between each spawn
+static float s_waveClearTimer = 0.0f; // Delay before the next wave begins
 
 /* ---------- Logic & Rendering ---------- */
 
@@ -279,49 +285,75 @@ static void DrawMouseCrosshair(void)
 
 static void DrawHud(void)
 {
+	float screenW = (float)CP_System_GetWindowWidth();
+	float screenH = (float)CP_System_GetWindowHeight();
+
+	char waveBuf[64];
+	int alive = CountAliveZombies();
+
+	// Main Wave text
+	snprintf(waveBuf, sizeof(waveBuf), "WAVE %d", s_wave);
+	CP_Settings_TextSize(36.0f);
+	CP_Settings_Fill(Col(255, 230, 120, 255));
+	CP_Settings_TextAlignment(CP_TEXT_ALIGN_H_RIGHT, CP_TEXT_ALIGN_V_TOP);
+	CP_Font_DrawText(waveBuf, screenW - 30.0f, 25.0f);
+
+	// Subtitle: Zombies remaining in this wave
+	snprintf(waveBuf, sizeof(waveBuf), "Zombies Left: %d", s_toSpawn + alive);
+	CP_Settings_TextSize(20.0f);
+	CP_Settings_Fill(Col(200, 200, 200, 255));
+	CP_Settings_TextAlignment(CP_TEXT_ALIGN_H_RIGHT, CP_TEXT_ALIGN_V_TOP);
+	CP_Font_DrawText(waveBuf, screenW - 30.0f, 68.0f);
+
+	// Wave cleared announcement in the center of the screen
+	if (s_waveClearTimer > 0.0f)
+	{
+		CP_Settings_TextSize(48.0f);
+		CP_Settings_Fill(Col(120, 255, 150, 255));
+		CP_Settings_TextAlignment(CP_TEXT_ALIGN_H_CENTER, CP_TEXT_ALIGN_V_MIDDLE);
+		CP_Font_DrawText("WAVE CLEARED!", screenW * 0.5f, screenH * 0.35f);
+	}
+
+	// ==========================================
+	// 2. TOP-LEFT: HEALTH BAR
+	// ==========================================
 	char buf[160];
-	const Player* p = &player;
+	const Player* p = &player; // Fixed syntax error here
 
-	// Position and dimensions of the health bar
-	const float bx = 30.0f;       // X position of the health bar
-	const float by = 28.0f;       // Y position of the health bar
-	const float bw = 380.0f;      // Maximum width of the health bar
-	const float bh = 30.0f;       // Height of the health bar
+	const float bx = 30.0f;
+	const float by = 28.0f;
+	const float bw = 380.0f;
+	const float bh = 30.0f;
 
-	// Calculate the percentage of the player's current health
-	// ClampF ensures the value stays between 0.0 and 1.0
 	float ratio = CP_Math_ClampFloat(p->hp / p->maxHp, 0.0f, 1.0f);
-
-	// Calculate the percentage of the ghost health bar
 	float ghost = CP_Math_ClampFloat(p->ghostHp / p->maxHp, 0.0f, 1.0f);
 
-	// Change the health bar colour depending on the player's remaining health
-	CP_Color hpCol = ratio > 0.5f ? Col(70, 200, 90, 255) :       // Green: Above 50% HP
-		(ratio > 0.25f ? Col(230, 190, 50, 255) :   // Yellow: Above 25% HP
-			Col(220, 50, 50, 255));    // Red: 25% HP or below
+	CP_Color hpCol = ratio > 0.5f ? Col(70, 200, 90, 255) :
+		(ratio > 0.25f ? Col(230, 190, 50, 255) :
+			Col(220, 50, 50, 255));
 
-	// Draw the dark background behind the health bar
+	// Background backing
 	G_Rect(bx - 4.0f, by - 4.0f, bw + 8.0f, bh + 8.0f, Col(0, 0, 0, 170));
 
-	// Draw the ghost health bar to show recently lost health
+	// Ghost health bar
 	G_Rect(bx, by, bw * ghost, bh, Col(255, 255, 255, 130));
 
-	// Draw the actual health bar based on the player's current health
+	// Active health bar
 	G_Rect(bx, by, bw * ratio, bh, hpCol);
 
-	// flash the bar red when a shot is refused because it would kill you
+	// Red flash if shot refused due to low health
 	if (player.noFireFlash > 0.0f)
 	{
 		G_Rect(bx - 4.0f, by - 4.0f, bw + 8.0f, bh + 8.0f, Col(255, 0, 0, (int)(player.noFireFlash / 0.35f * 200.0f)));
 	}
 
-	// numbers on the bar
+	// Health text on the bar
 	snprintf(buf, sizeof(buf), "HP %.0f / %.0f", player.hp, player.maxHp);
-	G_Text(buf, bx + bw * 0.5f, by + bh * 0.5f, 22.0f, Col(255, 255, 255, 255), AL_CENTER);
+	G_Text(buf, bx + bw * 0.5f, by + bh * 0.5f, 20.0f, Col(255, 255, 255, 255), AL_CENTER);
 
-	// selected weapon and what the next shot costs
+	// Active weapon drain label at bottom center
 	snprintf(buf, sizeof(buf), "%s: %s  -  costs %.1f HP now", s_weapons[player.weapon].name, s_weapons[player.weapon].drain, GetShotCost(player.weapon));
-	G_Text(buf, windowWidth * 0.5f, windowHeight - 22.0f, 24.0f, Col(230, 230, 230, 255), AL_CENTER);
+	G_Text(buf, screenW * 0.5f, screenH - 22.0f, 22.0f, Col(230, 230, 230, 255), AL_CENTER);
 }
 
 static void DrawPauseOverlay(void)
@@ -502,83 +534,145 @@ static void UpdateBullets(float dt)
 
 //ZOMBIES
 
-// Puts one zombie of the given type at a fixed position.
-// Stats are the original game's wave-1 numbers. No movement / AI yet (Enemy Chasing is a separate task).
-static void SpawnZombieAt(ZombieType type, float x, float y)
+//for zombie wave spawning
+// Counts how many zombies are currently alive on screen
+static int CountAliveZombies(void)
 {
+	int count = 0;
 	for (int i = 0; i < MAX_ZOMBIES; ++i)
 	{
-		if (s_zombies[i].active) continue;   // find a free slot
+		if (s_zombies[i].active) count++;
+	}
+	return count;
+}
 
-		Zombie* z = &s_zombies[i];
-		*z = (Zombie){ 0 };
-		z->active = true;
-		z->id = s_nextZombieId++;
-		z->type = type;
-		z->pos = CP_Vector_Set(x, y);
+// Begins the next wave with more zombies
+static void StartWave(void)
+{
+	s_wave++;
+	// Wave 1: 8 zombies, Wave 2: 12 zombies, Wave 3: 16 zombies...
+	s_toSpawn = 4 + (4 * s_wave);
+	s_spawnTimer = 0.0f;
+	s_waveClearTimer = 0.0f;
+}
 
-		if (type == Z_BRUTE)
+static void UpdateWave(float deltaTime)
+{
+	int alive = CountAliveZombies();
+
+	// 1. If we still have zombies to spawn in this wave
+	if (s_toSpawn > 0)
+	{
+		s_spawnTimer -= deltaTime;
+		if (s_spawnTimer <= 0.0f)
 		{
-			z->maxHp = 220.0f; z->speed = 62.0f;  z->radius = 26.0f; z->damage = 22.0f;
+			SpawnZombie();
+			s_toSpawn--;
+			s_spawnTimer = 1.0f; // 1 second between each zombie spawn
 		}
-		else if (type == Z_RUNNER)
+	}
+	// 2. All zombies spawned AND all zombies killed -> Wave Cleared!
+	else if (alive == 0)
+	{
+		if (s_waveClearTimer <= 0.0f)
 		{
-			z->maxHp = 22.0f;  z->speed = 190.0f; z->radius = 12.0f; z->damage = 6.0f;
+			// Reward player for completing the wave
+			player.maxHp += 5.0f;
+			player.hp = CP_Math_ClampFloat(player.hp + 25.0f, 0.0f, player.maxHp);
+			s_waveClearTimer = 3.0f; // 3 seconds break before next wave
 		}
-		else // Z_WALKER
+		else
 		{
-			z->maxHp = 40.0f;  z->speed = 95.0f;  z->radius = 15.0f; z->damage = 10.0f;
+			s_waveClearTimer -= deltaTime;
+			if (s_waveClearTimer <= 0.0f)
+			{
+				StartWave(); // Start next wave!
+			}
 		}
-		z->hp = z->maxHp;
-		z->attackTimer = 0.5f;   // short delay before its first bite
-		return;
 	}
 }
 
-// TEST SPAWN: 3 standing zombies (one of each type) so bullet + player hitboxes can be tested.
-// Replace this with the Wave Spawner once that task is done.
-static void SpawnTestZombies(void)
+//spawn zombies
+static void SpawnZombie(void)
 {
-	SpawnZombieAt(Z_WALKER, windowWidth * 0.25f, windowHeight * 0.30f);
-	SpawnZombieAt(Z_RUNNER, windowWidth * 0.75f, windowHeight * 0.30f);
-	SpawnZombieAt(Z_BRUTE,  windowWidth * 0.50f, windowHeight * 0.75f);
-}
-
-// Zombies don't move yet. Each frame this only:
-//  - counts down the hit flash + bite cooldown
-//  - stops the player walking through a zombie (player hitbox)
-//  - bites the player if they are touching (contact damage)
-static void UpdateZombies(float dt)
-{
+	int slot = -1;
 	for (int i = 0; i < MAX_ZOMBIES; ++i)
 	{
-		Zombie* z = &s_zombies[i];
-		if (!z->active) continue;
-
-		z->hitFlash = CP_Math_ClampFloat(z->hitFlash - dt, 0.0f, 1.0f);
-		z->attackTimer -= dt;
-
-		CP_Vector toPlayer = CP_Vector_Subtract(player.position, z->pos);
-		float dist = CP_Vector_Length(toPlayer);
-		float touchDist = PLAYER_RADIUS + z->radius;
-
-		// player hitbox vs zombie hitbox: the ZOMBIE is shoved out of the player
-		if (dist < touchDist)
+		if (!s_zombies[i].active)
 		{
-			CP_Vector n = (dist > 0.0001f) ? CP_Vector_Scale(toPlayer, -1.0f / dist) : CP_Vector_Set(-1.0f, 0.0f);
-			z->pos = CP_Vector_Add(player.position, CP_Vector_Scale(n, touchDist));
-			dist = touchDist;
+			slot = i;
+			break;
 		}
+	}
+	if (slot < 0) return; // All slots full
 
-		// bite: touching (+ small reach), off cooldown, and player not in their grace period
-		if (dist <= touchDist + 6.0f && z->attackTimer <= 0.0f && player.invuln <= 0.0f)
-		{
-			player.hp -= z->damage;
-			if (player.hp < 0.0f) player.hp = 0.0f;   // TODO: hook up Game Over Screen (Joshua) when hp hits 0
-			player.invuln = PLAYER_HIT_INVULN;
-			player.hitFlash = PLAYER_HIT_FLASH_TIME;
-			z->attackTimer = ZOMBIE_ATTACK_COOLDOWN;
-		}
+	// Wave difficulty scaling
+	float runnerChance = (s_wave >= 3) ? (0.07f * (float)(s_wave - 2)) : 0.0f;
+	if (runnerChance > 0.35f) runnerChance = 0.35f;
+
+	float bruteChance = (s_wave >= 5) ? (0.04f * (float)(s_wave - 4)) : 0.0f;
+	if (bruteChance > 0.18f) bruteChance = 0.18f;
+
+	float roll = CP_Random_RangeFloat(0.0f, 1.0f);
+
+	float hpMul = 1.0f + 0.10f * (float)(s_wave - 1);
+	float spdMul = 1.0f + 0.03f * (float)(s_wave - 1);
+	if (spdMul > 1.5f) spdMul = 1.5f;
+
+	float dmgMul = 1.0f + 0.05f * (float)(s_wave - 1);
+
+	Zombie* z = &s_zombies[slot];
+	z->active = true;
+	z->id = s_nextZombieId++;
+	z->hitFlash = 0.0f;
+
+	// Pick zombie archetype
+	if (roll < bruteChance)
+	{
+		z->type = Z_BRUTE;
+		z->maxHp = 220.0f * hpMul;
+		z->speed = 62.0f * spdMul;
+		z->radius = 26.0f;
+		z->damage = 22.0f * dmgMul;
+	}
+	else if (roll < bruteChance + runnerChance)
+	{
+		z->type = Z_RUNNER;
+		z->maxHp = 22.0f * hpMul;
+		z->speed = 190.0f * spdMul;
+		z->radius = 12.0f;
+		z->damage = 6.0f * dmgMul;
+	}
+	else
+	{
+		z->type = Z_WALKER;
+		z->maxHp = 40.0f * hpMul;
+		z->speed = 95.0f * spdMul;
+		z->radius = 15.0f;
+		z->damage = 10.0f * dmgMul;
+	}
+
+	z->hp = z->maxHp;
+	z->attackTimer = 0.5f;
+
+	// Spawn just outside a random edge (0 = top, 1 = right, 2 = bottom, 3 = left)
+	const float margin = 40.0f;
+	int edge = (int)CP_Random_RangeFloat(0.0f, 4.0f);
+
+	switch (edge)
+	{
+	case 0:  // Top
+		z->pos = CP_Vector_Set(CP_Random_RangeFloat(0.0f, windowWidth), -margin);
+		break;
+	case 1:  // Right
+		z->pos = CP_Vector_Set(windowWidth + margin, CP_Random_RangeFloat(0.0f, windowHeight));
+		break;
+	case 2:  // Bottom
+		z->pos = CP_Vector_Set(CP_Random_RangeFloat(0.0f, windowWidth), windowHeight + margin);
+		break;
+	default: // Left
+		z->pos = CP_Vector_Set(-margin, CP_Random_RangeFloat(0.0f, windowHeight));
+		break;
 	}
 }
 
@@ -650,6 +744,43 @@ static void DrawZombies(void)
 	}
 }
 
+static void UpdateZombies(float deltaTime)
+{
+	for (int i = 0; i < MAX_ZOMBIES; ++i)
+	{
+		Zombie* z = &s_zombies[i];
+		if (!z->active) continue;
+
+		// Reduce hit flash timer
+		if (z->hitFlash > 0.0f)
+		{
+			z->hitFlash -= deltaTime;
+		}
+
+		// Steer toward player
+		//make zombie chase player after getting diretion. 
+		CP_Vector toPlayer = CP_Vector_Subtract(player.position, z->pos);
+		//the direction zombie should move in to the player
+		CP_Vector moveDir = GetNormalizedDirection(toPlayer);
+
+		z->pos = CP_Vector_Add(z->pos, CP_Vector_Scale(moveDir, z->speed * deltaTime));
+
+		// Damage player if touching
+		//hit box from prev code s
+		float hitDist = PLAYER_RADIUS + z->radius;
+		if (CP_Vector_Distance(player.position, z->pos) <= hitDist)
+		{
+			z->attackTimer -= deltaTime;
+			if (z->attackTimer <= 0.0f)
+			{
+				player.hp -= z->damage;
+				z->attackTimer = 0.8f; // Attack interval
+			}
+		}
+	}
+}
+
+
 static void Render(void)
 {
 	DrawBackgroundGrid();
@@ -718,8 +849,8 @@ void Game_Init(void)
 		s_zombies[i].active = false;
 	}
 	s_nextZombieId = 1;
-
-	SpawnTestZombies();   // 3 standing zombies for testing hitboxes
+	s_wave = 0;
+	StartWave();
 }
 
 void Game_Update(void)
@@ -750,6 +881,7 @@ void Game_Update(void)
 		UpdatePlayerMovementAndAim(deltaTime);
 		UpdateZombies(deltaTime);
 		UpdateBullets(deltaTime);
+		UpdateWave(deltaTime);   // <-- Manages spawning & wave progression
 	}
 
 	Render();
