@@ -807,10 +807,6 @@ static void GoToMenu(void)
 
 /* =========================================================
    [GAME OVER] START  -- everything for the game over screen
-   (colours match the main menu, buttons light up on hover)
-   Paste this whole block just ABOVE the "CProcessing Engine Callbacks" comment.
-   It only READS the team's variables (player, s_zombies, s_wave, s_waveClearTimer)
-   and calls Render(), DrawMouseCrosshair(), GoToMenu() - it changes none of their code.
    ========================================================= */
 
    // ---- colours (R, G, B) -- copied from mainmenu.c so both screens match ----
