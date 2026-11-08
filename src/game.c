@@ -47,7 +47,7 @@
 #define DEG_TO_RAD                 0.01745329f
 
 typedef enum { Z_WALKER, Z_RUNNER, Z_BRUTE } ZombieType;
-typedef enum { W_PISTOL, W_TARGET_LOCK, W_PARASITE, W_MINIGUN, W_HEALTH_LASER, W_COUNT} WeaponType;
+typedef enum { W_PISTOL, W_TARGET_LOCK, W_PARASITE, W_MINIGUN, W_HEALTH_LASER, W_COUNT } WeaponType;
 
 //weapons
 typedef struct
@@ -82,7 +82,7 @@ typedef struct
 	CP_Vector pos, vel; //velocity of the bullet
 	float life, damage, radius;
 	int pierceLeft;
-	int hitIds[MAX_PIERCE_TRACK]; 
+	int hitIds[MAX_PIERCE_TRACK];
 	int hitCount;
 } Bullet;
 
@@ -124,7 +124,7 @@ static Player   player;
 static bool     s_paused = false;   // true while the pause menu is showing
 static void SpawnBullet(WeaponType type, CP_Vector pos, float angle, float speedMul, float lifeMul);
 static void FireWeapon(void);
-static void SpawnZombie(void); 
+static void SpawnZombie(void);
 static float s_fireTimer = 0.0f;
 static int   s_nextZombieId = 1;        // unique id per zombie so piercing bullets don't double-hit
 static float s_zombieSpawnTimer = 0.0f; // Timer between spawns
@@ -225,7 +225,7 @@ static void UpdatePlayerMovementAndAim(float deltaTime)
 	player.noFireFlash = CP_Math_ClampFloat(player.noFireFlash - deltaTime, 0.0f, 1.0f);
 
 	// player hitbox timers: invulnerability window + red screen flash after a bite
-	player.invuln   = CP_Math_ClampFloat(player.invuln - deltaTime, 0.0f, PLAYER_HIT_INVULN);
+	player.invuln = CP_Math_ClampFloat(player.invuln - deltaTime, 0.0f, PLAYER_HIT_INVULN);
 	player.hitFlash = CP_Math_ClampFloat(player.hitFlash - deltaTime, 0.0f, PLAYER_HIT_FLASH_TIME);
 
 	// the pale "ghost" bar trails behind the real bar so you can see how much a shot cost
@@ -374,7 +374,7 @@ static void SpawnBullet(WeaponType type, CP_Vector pos, float angle, float speed
 	//speed of bullet is weapon speed * speed multiplier (for powerups)
 	float spd = def->speed * speedMul;
 
-	for (int i = 0; i < MAX_BULLETS; ++i){
+	for (int i = 0; i < MAX_BULLETS; ++i) {
 		// If this slot is already active (flying on screen), skip it
 		if (M_bullets[i].active) continue;
 
@@ -409,7 +409,7 @@ static void FireWeapon(void)
 		float angle = player.aimAngleRadians + CP_Random_RangeFloat(-halfSpread, halfSpread);
 		// multi-pellet guns get slightly uneven speed/range so the spread looks natural
 		float speedMul = (def->pellets > 1) ? CP_Random_RangeFloat(0.85f, 1.10f) : 1.0f;
-		float lifeMul  = (def->pellets > 1) ? CP_Random_RangeFloat(0.80f, 1.10f) : 1.0f;
+		float lifeMul = (def->pellets > 1) ? CP_Random_RangeFloat(0.80f, 1.10f) : 1.0f;
 		SpawnBullet(player.weapon, gunTipPos, angle, speedMul, lifeMul);
 	}
 }
@@ -438,11 +438,12 @@ static float PointSegDistSq(CP_Vector p, CP_Vector a, CP_Vector b)
 static bool BulletAlreadyHit(const Bullet* b, int zombieId)
 {
 	int n;
-	if (b->hitCount < MAX_PIERCE_TRACK){
+	if (b->hitCount < MAX_PIERCE_TRACK) {
 		n = b->hitCount;
-	}else{
+	}
+	else {
 		n = MAX_PIERCE_TRACK;
-	}for (int i = 0; i < n; ++i){
+	}for (int i = 0; i < n; ++i) {
 		if (b->hitIds[i] == zombieId) return true; // Already damaged this zombie, skip!
 	}
 	return false;
@@ -805,12 +806,204 @@ static void GoToMenu(void)
 }
 
 /* =========================================================
+   [GAME OVER] START  -- everything for the game over screen
+   (colours match the main menu, buttons light up on hover)
+   Paste this whole block just ABOVE the "CProcessing Engine Callbacks" comment.
+   It only READS the team's variables (player, s_zombies, s_wave, s_waveClearTimer)
+   and calls Render(), DrawMouseCrosshair(), GoToMenu() - it changes none of their code.
+   ========================================================= */
+
+   // ---- colours (R, G, B) -- copied from mainmenu.c so both screens match ----
+#define GO_TITLE         200, 30, 30     // "GAME OVER" colour (same red as the "BLEED OUT" title)
+#define GO_TITLE_BRIGHT  255, 30, 30     // the title pulses between GO_TITLE and this (same as the menu)
+#define GO_BORDER_OFF    90, 20, 20      // button border: normal      (menu button border)
+#define GO_BORDER_ON     255, 230, 120   // button border: mouse over  (menu hover yellow)
+#define GO_FILL_OFF      60, 12, 12      // button body: normal        (menu button body)
+#define GO_FILL_ON       170, 30, 30     // button body: mouse over    (menu hover red)
+#define GO_GLOW          255, 230, 120   // soft glow around a hovered button
+#define GO_STAT_TEXT     230, 230, 230   // wave / kills / score text  (menu subtitle grey)
+#define GO_BEST_TEXT     255, 230, 120   // "best" text                (menu best-score yellow)
+
+#define GO_BTN_W 380.0f             // button width
+#define GO_BTN_H 70.0f              // button height
+
+static bool  s_gameOver = false;    // true while the game over screen is showing
+static float s_goTimer = 0.0f;      // seconds since the player died
+static float s_goTryGlow = 0.0f;    // TRY AGAIN button: 0 = dark, 1 = lit up
+static float s_goMenuGlow = 0.0f;   // MAIN MENU button: 0 = dark, 1 = lit up
+
+// ---- scoring (same points as the original BLEED OUT game) ----
+static int   s_score = 0;           // points this run
+static int   s_kills = 0;           // zombies killed this run
+static int   s_goWave = 0;          // wave the player died on
+static int   s_bestScore = 0;       // best score since the program started (NOT reset on restart)
+static int   s_bestWave = 0;        // best wave since the program started (NOT reset on restart)
+
+// kill tracking: remembers which zombie was in each slot last frame
+static int        s_goSeenId[MAX_ZOMBIES];     // zombie id seen in each slot (0 = empty slot)
+static ZombieType s_goSeenType[MAX_ZOMBIES];   // and what type it was
+static float      s_goPrevClear = 0.0f;        // last frame's s_waveClearTimer (to spot "wave cleared")
+
+// clears the score and tracking. Called from Game_Init, so every new run starts from 0
+static void GameOver_Reset(void)
+{
+	s_gameOver = false;
+	s_score = 0;
+	s_kills = 0;
+	s_goPrevClear = 0.0f;
+	for (int i = 0; i < MAX_ZOMBIES; ++i) s_goSeenId[i] = 0;
+}
+
+// Works out the score WITHOUT touching the team's zombie / bullet code.
+// Called once per frame: a zombie that was in a slot last frame but is gone now = a kill.
+static void GameOver_TrackScore(void)
+{
+	// 1. kills: Walker = 10, Runner = 15, Brute = 50 points
+	for (int i = 0; i < MAX_ZOMBIES; ++i)
+	{
+		// was a zombie here last frame, but now the slot is empty (or holds a newer zombie)?
+		if (s_goSeenId[i] != 0 && (!s_zombies[i].active || s_zombies[i].id != s_goSeenId[i]))
+		{
+			s_kills++;
+			if (s_goSeenType[i] == Z_BRUTE)       s_score += 50;
+			else if (s_goSeenType[i] == Z_RUNNER) s_score += 15;
+			else                                  s_score += 10;
+		}
+
+		// remember what is in this slot now, for next frame
+		if (s_zombies[i].active)
+		{
+			s_goSeenId[i] = s_zombies[i].id;
+			s_goSeenType[i] = s_zombies[i].type;
+		}
+		else
+		{
+			s_goSeenId[i] = 0;
+		}
+	}
+
+	// 2. wave cleared bonus: 100 x wave (the team's s_waveClearTimer jumps from 0 to 3 when a wave is cleared)
+	if (s_goPrevClear <= 0.0f && s_waveClearTimer > 0.0f) s_score += 100 * s_wave;
+	s_goPrevClear = s_waveClearTimer;
+}
+
+// blends colour 1 -> colour 2 (t = 0 gives colour 1, t = 1 gives colour 2)
+static CP_Color GO_MixColor(int r1, int g1, int b1, int r2, int g2, int b2, float t, int a)
+{
+	return Col((int)(r1 + (r2 - r1) * t), (int)(g1 + (g2 - g1) * t), (int)(b1 + (b2 - b1) * t), a);
+}
+
+// top-left corner of each button (worked out from the window size)
+static float GO_TryX(void) { return (windowWidth - GO_BTN_W) * 0.5f; }
+static float GO_TryY(void) { return windowHeight * 0.55f; }
+static float GO_MenuX(void) { return GO_TryX(); }
+static float GO_MenuY(void) { return GO_TryY() + 90.0f; }
+
+// is the mouse inside the button that starts at (x, y)?
+static bool GO_MouseOver(float x, float y)
+{
+	float mx = CP_Input_GetMouseX();
+	float my = CP_Input_GetMouseY();
+	return (mx >= x && mx <= x + GO_BTN_W && my >= y && my <= y + GO_BTN_H);
+}
+
+// draw one button. glow: 0 = normal colours, 1 = lit up with a glow around it
+static void GO_DrawButton(float x, float y, const char* label, float glow)
+{
+	// soft glow around the button (invisible when glow = 0)
+	for (int i = 5; i >= 1; i--)
+	{
+		float grow = 4.0f + 5.0f * i;
+		G_Rect(x - grow, y - grow, GO_BTN_W + grow * 2.0f, GO_BTN_H + grow * 2.0f,
+			Col(GO_GLOW, (int)(glow * (60 - 10 * i))));
+	}
+	// border
+	G_Rect(x - 4.0f, y - 4.0f, GO_BTN_W + 8.0f, GO_BTN_H + 8.0f,
+		GO_MixColor(GO_BORDER_OFF, GO_BORDER_ON, glow, 255));
+	// button body
+	G_Rect(x, y, GO_BTN_W, GO_BTN_H, GO_MixColor(GO_FILL_OFF, GO_FILL_ON, glow, 255));
+	// label
+	G_Text(label, x + GO_BTN_W * 0.5f, y + GO_BTN_H * 0.5f, 42.0f, Col(255, 255, 255, 255), AL_CENTER);
+}
+
+// call this once, the moment the player dies
+static void GameOver_Start(void)
+{
+	s_gameOver = true;
+	s_goTimer = 0.0f;
+	s_goTryGlow = 0.0f;
+	s_goMenuGlow = 0.0f;
+	s_goWave = s_wave;
+
+	if (s_score > s_bestScore) s_bestScore = s_score;   // remember the bests
+	if (s_goWave > s_bestWave) s_bestWave = s_goWave;
+}
+
+// call every frame while the game over screen is showing (draws on top of Render())
+static void GameOver_UpdateAndDraw(float dt)
+{
+	s_goTimer += dt;
+
+	// 1. hover: the glow fades up when the mouse is on a button, and fades down when it leaves
+	float target = GO_MouseOver(GO_TryX(), GO_TryY()) ? 1.0f : 0.0f;
+	s_goTryGlow += (target - s_goTryGlow) * 12.0f * dt;
+	target = GO_MouseOver(GO_MenuX(), GO_MenuY()) ? 1.0f : 0.0f;
+	s_goMenuGlow += (target - s_goMenuGlow) * 12.0f * dt;
+
+	// 2. clicks (ignored for the first 0.5s so a click made while dying doesn't skip the screen)
+	if (s_goTimer > 0.5f && CP_Input_MouseTriggered(MOUSE_BUTTON_LEFT))
+	{
+		if (GO_MouseOver(GO_TryX(), GO_TryY()))
+		{
+			Game_Init();   // TRY AGAIN = reset everything (hp, zombies, bullets, wave, score) and hide this screen
+			return;
+		}
+		if (GO_MouseOver(GO_MenuX(), GO_MenuY()))
+		{
+			GoToMenu();   // MAIN MENU
+			return;
+		}
+	}
+
+	// 3. draw: dark overlay that fades in
+	float fade = s_goTimer / 0.4f;
+	if (fade > 1.0f) fade = 1.0f;
+	int a = (int)(255 * fade);
+	G_Rect(0.0f, 0.0f, windowWidth, windowHeight, Col(0, 0, 0, (int)(170 * fade)));
+
+	// title "GAME OVER" (pulses slowly, with a shadow behind it)
+	float pulse = 0.5f + 0.5f * sinf(s_goTimer * 2.5f);
+	float titleY = windowHeight * 0.28f;
+	G_Text("GAME OVER", windowWidth * 0.5f + 4.0f, titleY + 4.0f, 120.0f, Col(0, 0, 0, (int)(200 * fade)), AL_CENTER);
+	G_Text("GAME OVER", windowWidth * 0.5f, titleY, 120.0f, GO_MixColor(GO_TITLE, GO_TITLE_BRIGHT, pulse, a), AL_CENTER);
+
+	// wave, kills and score
+	char text[100];
+	snprintf(text, sizeof(text), "Reached wave %d          Kills: %d          Score: %d", s_goWave, s_kills, s_score);
+	G_Text(text, windowWidth * 0.5f, titleY + 90.0f, 36.0f, Col(GO_STAT_TEXT, a), AL_CENTER);
+	snprintf(text, sizeof(text), "Best this session:  wave %d  /  score %d", s_bestWave, s_bestScore);
+	G_Text(text, windowWidth * 0.5f, titleY + 140.0f, 30.0f, Col(GO_BEST_TEXT, a), AL_CENTER);
+
+	// buttons (shown once the overlay is mostly visible)
+	if (fade > 0.5f)
+	{
+		GO_DrawButton(GO_TryX(), GO_TryY(), "TRY AGAIN", s_goTryGlow);
+		GO_DrawButton(GO_MenuX(), GO_MenuY(), "MAIN MENU", s_goMenuGlow);
+	}
+
+	// same crosshair (same colour) as in the gameplay, drawn on top of the overlay
+	DrawMouseCrosshair();
+}
+/* [GAME OVER] END */
+
+/* =========================================================
    CProcessing Engine Callbacks
    ========================================================= */
 void Game_Init(void)
 {
 	Font_EnsureLoaded();   // the menu frees its font on exit, so reload it for the pause text
 	s_paused = false;      // always start a new game unpaused
+	GameOver_Reset();      // [GAME OVER] new run = score back to 0, game over screen hidden
 
 	windowWidth = (float)CP_System_GetWindowWidth();
 	windowHeight = (float)CP_System_GetWindowHeight();
@@ -866,6 +1059,20 @@ void Game_Update(void)
 		CP_Engine_SetNextGameState(Main_Menu_Init, Main_Menu_Update, Main_Menu_Exit);
 		return;
 	}
+
+	// [GAME OVER] START ---------------------------------------------------------
+	if (!s_gameOver)
+	{
+		GameOver_TrackScore();                        // count kills + score
+		if (player.hp <= 0.0f) GameOver_Start();      // player died -> show the game over screen
+	}
+	if (s_gameOver)
+	{
+		Render();                                     // draw the frozen game
+		GameOver_UpdateAndDraw(deltaTime);            // then the game over screen on top
+		return;                                       // skip the normal game update
+	}
+	// [GAME OVER] END -----------------------------------------------------------
 
 	// ESC toggles pause; while paused, M goes back to the main menu
 	if (CP_Input_KeyTriggered(KEY_ESCAPE)) s_paused = !s_paused;
