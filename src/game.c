@@ -39,6 +39,19 @@
 #define HEALTH_LASER_COST_MIN      5.0f
 #define GHOST_DRAIN_RATE           70.0f   // how fast the pale "ghost" bar catches up (HP per second)
 
+// ---- pickups dropped by zombies ----
+#define MAX_PICKUPS           64
+#define MAX_TEXTS             32       // floating "+30 HP" style pop-ups on screen at once
+#define MEDKIT_HEAL           30.0f    // medkit: instant heal
+#define BANDAGE_POOL          40.0f    // bandage: total HP healed over time...
+#define BANDAGE_RATE          6.0f     //          ...at this many HP per second
+#define BLOOD_DROP_HEAL       4.0f     // blood drop: small instant heal
+#define BLOOD_MAGNET_RANGE    150.0f   //             ...blood drops fly to you inside this range...
+#define BLOOD_MAGNET_SPEED    430.0f   //             ...at this speed (px/s)
+#define BLOODLUST_TIME        12.0f    // bloodlust: seconds of kill-healing
+#define BLOODLUST_KILL_HEAL   5.0f     //            ...HP healed per kill while it lasts
+#define TWO_PI_F              6.2831853f
+
 // ---- player hitbox / zombie contact damage ----
 #define ZOMBIE_ATTACK_COOLDOWN     0.80f   // seconds between bites from the same zombie
 #define ZOMBIE_HIT_FLASH_TIME      0.08f   // white flash when a bullet hits a zombie
@@ -52,6 +65,14 @@
 
 typedef enum { Z_WALKER, Z_RUNNER, Z_BRUTE } ZombieType;
 typedef enum { W_PISTOL, W_TARGET_LOCK, W_PARASITE, W_MINIGUN, W_HEALTH_LASER, W_COUNT } WeaponType;
+
+typedef enum {
+	PICK_BLOOD,     // Small heal, flies toward the player
+	PICK_MEDKIT,    // Large instant heal
+	PICK_BANDAGE,   // Medium heal
+	PICK_BLOODLUST, // Special buff item
+	PICK_WEAPON     // Unlocks a new gun type
+} PickupType;
 
 //weapons
 typedef struct
@@ -68,6 +89,7 @@ typedef struct
 	int   pierce;           // extra zombies a bullet can go through
 	int   r, g, b;
 } WeaponDef;
+
 
 static const WeaponDef s_weapons[W_COUNT] =
 {
@@ -104,6 +126,10 @@ typedef struct
 
 	float rampTime;     // minigun: how long the trigger has been held
 	float noFireFlash;  // red flash on the health bar when a shot is refused
+
+	float regenPool;    // bandage: HP still waiting to be healed over time
+	float bloodlust;    // bloodlust: seconds left (kills heal you while this is above 0)
+
 	float combatTimer;  // tracks time since last shot or damage taken
 } Player;
 
@@ -119,7 +145,29 @@ typedef struct
 	float attackTimer, swayPhase, swayAmp, hitFlash;
 } Zombie;
 
+typedef struct
+{
+	bool active;
+	PickupType type;
+	CP_Vector pos;
+	float life;      // seconds left before it disappears
+	float bob;       // used for the gentle up/down float
+} Pickup;
+
+typedef struct
+{
+	bool active;
+	CP_Vector pos;
+	float life;
+	char text[32];
+	int r, g, b;
+} FloatText;
+
 static Zombie   s_zombies[MAX_ZOMBIES];
+static Pickup   s_pickups[MAX_PICKUPS];
+static FloatText s_texts[MAX_TEXTS];
+static int      s_textNext = 0;   // next slot to use for a floating text
+static Pickup	s_pickups[MAX_PICKUPS]; // Hold all pickup slots
 static CP_Color s_zombieColor;
 static float    windowWidth = 1600.0f;
 static float    windowHeight = 900.0f;
@@ -128,6 +176,7 @@ static bool     s_paused = false;   // true while the pause menu is showing (sya
 static void     SpawnBullet(WeaponType type, CP_Vector pos, CP_Vector direction, float speedMul, float lifeMul);
 static void     FireWeapon(void);
 static void     SpawnZombie(void);
+static int      CountAliveZombies(void);
 static float    s_fireTimer = 0.0f;
 static int      s_nextZombieId = 1;        // unique id per zombie so piercing bullets don't double-hit
 static float    s_zombieSpawnTimer = 0.0f; // Timer between spawns
@@ -243,6 +292,19 @@ static void UpdatePlayerMovementAndAim(float deltaTime)
 	// refused-shot flash fades out
 	player.noFireFlash = CP_Math_ClampFloat(player.noFireFlash - deltaTime, 0.0f, 1.0f);
 
+	// bloodlust countdown
+	player.bloodlust = CP_Math_ClampFloat(player.bloodlust - deltaTime, 0.0f, BLOODLUST_TIME);
+
+	// bandage: heal a little every frame from the queued pool
+	if (player.regenPool > 0.0f && player.hp < player.maxHp)
+	{
+		float heal = BANDAGE_RATE * deltaTime;
+		if (heal > player.regenPool) heal = player.regenPool;                   // not more than is queued
+		if (heal > player.maxHp - player.hp) heal = player.maxHp - player.hp;   // not more than the missing HP
+		player.regenPool -= heal;
+		player.hp += heal;
+	}
+
 	// the pale "ghost" bar trails behind the real bar so you can see how much a shot cost
 	player.ghostHp = CP_Math_ClampFloat(player.ghostHp - GHOST_DRAIN_RATE * deltaTime, player.hp, player.maxHp);
 
@@ -250,7 +312,7 @@ static void UpdatePlayerMovementAndAim(float deltaTime)
 	// If the player hasn't shot or taken damage, increase the timer
 	player.combatTimer += deltaTime;
 
-	// After 5 seconds of inactivity, slowly regenerate HP (e.g., 10 HP per second)
+	// After 5 seconds of inactivity, slowly regenerate HP (e.g., 5 HP per second)
 	if (player.combatTimer >= 5.0f && player.hp < player.maxHp)
 	{
 		float regenRate = 5.0f; // Amount of HP healed per second
@@ -383,10 +445,12 @@ static void DrawHud(void)
 	// Wave cleared announcement in the center of the screen
 	if (s_waveClearTimer > 0.0f)
 	{
+		snprintf(waveBuf, sizeof(waveBuf), "WAVE %d CLEARED!", s_wave);
+
 		CP_Settings_TextSize(48.0f);
 		CP_Settings_Fill(Col(120, 255, 150, 255));
 		CP_Settings_TextAlignment(CP_TEXT_ALIGN_H_CENTER, CP_TEXT_ALIGN_V_MIDDLE);
-		CP_Font_DrawText("WAVE CLEARED!", screenW * 0.5f, screenH * 0.35f);
+		CP_Font_DrawText(waveBuf, screenW * 0.5f, screenH * 0.35f);
 	}
 
 	// ==========================================
@@ -421,6 +485,12 @@ static void DrawHud(void)
 	// Draw the main active health bar reflecting the player's exact current HP pool
 	G_Rect(bx, by, bw * ratio, bh, hpCol);
 
+	// Bandage: pale green segment showing how much healing is still queued
+	float queued = player.regenPool;
+	if (queued > player.maxHp - player.hp) queued = player.maxHp - player.hp;
+	float pool = CP_Math_ClampFloat(queued / player.maxHp, 0.0f, 1.0f);
+	if (pool > 0.0f) G_Rect(bx + bw * ratio, by, bw * pool, bh, Col(150, 255, 170, 110));
+
 	// If the player tries to shoot without enough health, flash a red warning overlay over the health bar
 	if (player.noFireFlash > 0.0f)
 	{
@@ -430,6 +500,20 @@ static void DrawHud(void)
 	// Render text over the health bar displaying exact numerical values (e.g., "HP 80 / 100")
 	snprintf(buf, sizeof(buf), "HP %.0f / %.0f", player.hp, player.maxHp);
 	G_Text(buf, bx + bw * 0.5f, by + bh * 0.5f, 20.0f, Col(255, 255, 255, 255), AL_CENTER);
+
+	// status lines under the health bar
+	float statusY = by + bh + 28.0f;
+	if (player.bloodlust > 0.0f)
+	{
+		snprintf(buf, sizeof(buf), "BLOODLUST %.0fs  (kills heal +%.0f)", player.bloodlust, BLOODLUST_KILL_HEAL);
+		G_Text(buf, bx, statusY, 22.0f, Col(230, 100, 255, 255), AL_LEFT);
+		statusY += 26.0f;
+	}
+	if (player.regenPool > 0.5f)
+	{
+		snprintf(buf, sizeof(buf), "REGEN: %.0f HP queued", player.regenPool);
+		G_Text(buf, bx, statusY, 22.0f, Col(150, 255, 190, 255), AL_LEFT);
+	}
 
 	// Render the active weapon name, its cost description, and the exact HP cost per shot at the bottom center of the screen
 	snprintf(buf, sizeof(buf), "%s: %s  -  costs %.1f HP now", s_weapons[player.weapon].name, s_weapons[player.weapon].drain, GetShotCost(player.weapon));
@@ -509,6 +593,210 @@ static void DrawBullets(void)
 	}
 }
 
+/* =========================================================
+   Floating text (the "+30 HP" pop-ups)
+   ========================================================= */
+static void SpawnText(CP_Vector pos, const char* text, int r, int g, int b)
+{
+	s_texts[s_textNext] = (FloatText){ .active = true, .pos = pos, .life = 1.1f, .r = r, .g = g, .b = b };
+	snprintf(s_texts[s_textNext].text, sizeof(s_texts[s_textNext].text), "%s", text);
+	s_textNext = (s_textNext + 1) % MAX_TEXTS;   // wrap around, old texts have faded by then
+}
+
+static void UpdateFloatTexts(float deltaTime)
+{
+	for (int i = 0; i < MAX_TEXTS; ++i)
+	{
+		if (!s_texts[i].active) continue;
+
+		s_texts[i].life -= deltaTime;
+		if (s_texts[i].life <= 0.0f)
+		{
+			s_texts[i].active = false;
+			continue;
+		}
+		s_texts[i].pos.y -= 40.0f * deltaTime;   // drift upward
+	}
+}
+
+static void DrawFloatTexts(void)
+{
+	for (int i = 0; i < MAX_TEXTS; ++i)
+	{
+		if (!s_texts[i].active) continue;
+
+		float alpha = CP_Math_ClampFloat(255.0f * s_texts[i].life, 0.0f, 255.0f);   // fades out over the last second
+		G_Text(s_texts[i].text, s_texts[i].pos.x, s_texts[i].pos.y - 30.0f, 24.0f,
+			Col(s_texts[i].r, s_texts[i].g, s_texts[i].b, (int)alpha), AL_CENTER);
+	}
+}
+
+/* =========================================================
+   Pickups
+   ========================================================= */
+   // Heals the player, never above max HP.
+static void Heal(float amount)
+{
+	player.hp = CP_Math_ClampFloat(player.hp + amount, 0.0f, player.maxHp);
+}
+
+// How close the player has to be to collect it (blood drops are small).
+static float PickupRadius(PickupType type)
+{
+	if (type == PICK_BLOOD) return 9.0f;
+	return 18.0f;
+}
+
+static void SpawnPickup(PickupType type, CP_Vector pos)
+{
+	for (int i = 0; i < MAX_PICKUPS; ++i)
+	{
+		if (s_pickups[i].active) continue;   // slot in use, try the next one
+
+		s_pickups[i] = (Pickup){
+			.active = true,
+			.type = type,
+			// keep it on screen even if the zombie died at the edge
+			.pos = CP_Vector_Set(CP_Math_ClampFloat(pos.x, 30.0f, windowWidth - 30.0f),
+								 CP_Math_ClampFloat(pos.y, 30.0f, windowHeight - 30.0f)),
+			.life = (type == PICK_BLOOD) ? 10.0f : 14.0f,
+			.bob = CP_Random_RangeFloat(0.0f, TWO_PI_F)
+		};
+		return;
+	}
+}
+
+// What happens when the player touches a pickup of this type.
+static void CollectPickup(PickupType type)
+{
+	char buf[48];
+	switch (type)
+	{
+	case PICK_BLOOD:
+		Heal(BLOOD_DROP_HEAL);
+		break;
+	case PICK_MEDKIT:
+		Heal(MEDKIT_HEAL);
+		snprintf(buf, sizeof(buf), "+%.0f HP", MEDKIT_HEAL);
+		SpawnText(player.position, buf, 120, 255, 140);
+		break;
+	case PICK_BANDAGE:
+		player.regenPool += BANDAGE_POOL;     // healed gradually by the player update
+		snprintf(buf, sizeof(buf), "REGEN +%.0f", BANDAGE_POOL);
+		SpawnText(player.position, buf, 150, 255, 200);
+		break;
+	case PICK_BLOODLUST:
+		player.bloodlust = BLOODLUST_TIME;    // kills heal you until this runs out
+		SpawnText(player.position, "BLOODLUST!", 230, 80, 255);
+		break;
+	}
+}
+
+static void UpdatePickups(float deltaTime)
+{
+	for (int i = 0; i < MAX_PICKUPS; ++i)
+	{
+		if (!s_pickups[i].active) continue;
+
+		s_pickups[i].bob += deltaTime;
+		s_pickups[i].life -= deltaTime;
+		if (s_pickups[i].life <= 0.0f)         // nobody collected it in time
+		{
+			s_pickups[i].active = false;
+			continue;
+		}
+
+		CP_Vector toPlayer = CP_Vector_Subtract(player.position, s_pickups[i].pos);
+		float distance = CP_Vector_Length(toPlayer);
+
+		// blood drops fly toward the player once they are close enough
+		if (s_pickups[i].type == PICK_BLOOD && distance < BLOOD_MAGNET_RANGE)
+		{
+			s_pickups[i].pos = CP_Vector_Add(s_pickups[i].pos,
+				CP_Vector_Scale(GetNormalizedDirection(toPlayer), BLOOD_MAGNET_SPEED * deltaTime));
+		}
+
+		// touching the player = collected
+		if (distance < PLAYER_RADIUS + PickupRadius(s_pickups[i].type))
+		{
+			CollectPickup(s_pickups[i].type);
+			s_pickups[i].active = false;
+		}
+	}
+}
+
+static void DrawPickups(void)
+{
+	for (int i = 0; i < MAX_PICKUPS; ++i)
+	{
+		if (!s_pickups[i].active) continue;
+
+		// blink during the last 3 seconds so the player knows it is about to vanish
+		if (s_pickups[i].life < 3.0f && ((int)(s_pickups[i].life * 10.0f) % 2) == 0) continue;
+
+		float x = s_pickups[i].pos.x;
+		float y = s_pickups[i].pos.y + sinf(s_pickups[i].bob * 3.0f) * 3.0f;   // gentle up/down float
+
+		switch (s_pickups[i].type)
+		{
+		case PICK_BLOOD:
+			G_Circle(x, y, 8.0f, Col(200, 20, 40, 255));
+			G_Circle(x - 2.0f, y - 2.0f, 3.0f, Col(255, 140, 150, 255));
+			break;
+		case PICK_MEDKIT:
+			G_Rect(x - 15.0f, y - 15.0f, 30.0f, 30.0f, Col(240, 240, 240, 255));
+			G_Rect(x - 9.0f, y - 3.0f, 18.0f, 6.0f, Col(220, 30, 40, 255));    // red cross, horizontal bar
+			G_Rect(x - 3.0f, y - 9.0f, 6.0f, 18.0f, Col(220, 30, 40, 255));    // red cross, vertical bar
+			break;
+		case PICK_BANDAGE:
+			G_Circle(x, y, 17.0f, Col(235, 200, 150, 255));
+			G_Ring(x, y, 17.0f, 3.0f, Col(120, 255, 170, 255));
+			G_Text("REGEN", x, y - 28.0f, 16.0f, Col(150, 255, 200, 255), AL_CENTER);
+			break;
+		case PICK_BLOODLUST:
+			G_Circle(x, y, 17.0f, Col(150, 40, 190, 255));
+			G_Circle(x, y, 8.0f, Col(255, 60, 90, 255));
+			G_Text("BLOODLUST", x, y - 28.0f, 16.0f, Col(230, 120, 255, 255), AL_CENTER);
+			break;
+		}
+	}
+}
+
+/* =========================================================
+   Loot: what a zombie leaves behind when it dies
+   ========================================================= */
+static void DropLoot(CP_Vector pos, ZombieType type)
+{
+	float roll = CP_Random_RangeFloat(0.0f, 1.0f);
+
+	// brutes always drop a real heal (medkit or bandage), nudged aside so it doesn't sit on top of the normal drop
+	if (type == Z_BRUTE)
+	{
+		CP_Vector nudged = CP_Vector_Set(pos.x + CP_Random_RangeFloat(-14.0f, 14.0f),
+			pos.y + CP_Random_RangeFloat(-14.0f, 14.0f));
+		SpawnPickup((CP_Random_RangeFloat(0.0f, 1.0f) < 0.5f) ? PICK_MEDKIT : PICK_BANDAGE, nudged);
+	}
+
+	// drop chances (tune these later for the Drop Rates task)
+	if (roll < 0.03f) SpawnPickup(PICK_BLOODLUST, pos);   //  3%  rare
+	else if (roll < 0.08f) SpawnPickup(PICK_MEDKIT, pos);      //  5%
+	else if (roll < 0.14f) SpawnPickup(PICK_BANDAGE, pos);     //  6%
+	else if (roll < 0.54f) SpawnPickup(PICK_BLOOD, pos);       // 40%  most common
+	// otherwise nothing drops
+}
+
+// Called the moment a zombie dies (index = its slot in s_zombies): drops loot and applies bloodlust.
+static void OnZombieKilled(int index)
+{
+	DropLoot(s_zombies[index].pos, s_zombies[index].type);
+
+	if (player.bloodlust > 0.0f)
+	{
+		Heal(BLOODLUST_KILL_HEAL);
+		SpawnText(s_zombies[index].pos, "+5", 230, 80, 255);
+	}
+}
+
 static void UpdateBullets(float dt)
 {
 	for (int i = 0; i < MAX_BULLETS; ++i)
@@ -563,6 +851,7 @@ static void UpdateBullets(float dt)
 			if (zombie->hp <= 0.0f)
 			{
 				zombie->active = false;
+				OnZombieKilled(z);   // loot drop + bloodlust heal
 			}
 
 			// No pierce left -> bullet disappears on hit
@@ -887,9 +1176,11 @@ static void ResolveOverlaps(void)
 static void Render(void)
 {
 	DrawBackgroundGrid();
+	DrawPickups();          // under the zombies and the player
 	DrawZombies();
 	DrawBullets();
 	DrawPlayerSprite();
+	DrawFloatTexts();       // "+30 HP" pop-ups above everything in the world
 	DrawHud();
 
 	if (s_paused) DrawPauseOverlay();
@@ -1109,6 +1400,10 @@ void Game_Init(void)
 	player.ghostHp = 100.0f;  // Ghost health starts at maximum HP
 	player.rampTime = 0.0f;
 	player.noFireFlash = 0.0f;
+
+	player.regenPool = 0.0f;
+	player.bloodlust = 0.0f;
+
 	s_fireTimer = 0.3f;
 
 	//weapon ownership and selection
@@ -1131,6 +1426,18 @@ void Game_Init(void)
 	{
 		s_zombies[i].active = false;
 	}
+
+	//clear pickups and floating texts
+	for (int i = 0; i < MAX_PICKUPS; ++i)
+	{
+		s_pickups[i].active = false;
+	}
+	for (int i = 0; i < MAX_TEXTS; ++i)
+	{
+		s_texts[i].active = false;
+	}
+	s_textNext = 0;
+
 	s_nextZombieId = 1;
 	s_wave = 0;
 	StartWave();
@@ -1178,6 +1485,8 @@ void Game_Update(void)
 		UpdatePlayerMovementAndAim(deltaTime);
 		UpdateZombies(deltaTime);
 		UpdateBullets(deltaTime);
+		UpdatePickups(deltaTime); // Call the pickup update loop here every frame
+		UpdateFloatTexts(deltaTime);
 		UpdateWave(deltaTime);   // <-- Manages spawning & wave progression
 		ResolveOverlaps();      // last, so knockback and fresh spawns can't leave anything overlapping
 	}
