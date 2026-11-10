@@ -83,7 +83,7 @@ typedef struct
 {
 	bool active;
 	WeaponType type;
-	CP_Vector pos, vel; //velocity of the bullet
+	CP_Vector pos, vel; // velocity of the bullet
 	float life, damage, radius;
 	int pierceLeft;
 	int hitIds[MAX_PIERCE_TRACK];
@@ -104,6 +104,7 @@ typedef struct
 
 	float rampTime;     // minigun: how long the trigger has been held
 	float noFireFlash;  // red flash on the health bar when a shot is refused
+	float combatTimer;  // tracks time since last shot or damage taken
 } Player;
 
 typedef struct
@@ -123,7 +124,7 @@ static CP_Color s_zombieColor;
 static float    windowWidth = 1600.0f;
 static float    windowHeight = 900.0f;
 static Player   player;
-static bool     s_paused = false;   // true while the pause menu is showing
+static bool     s_paused = false;   // true while the pause menu is showing (syahmi)
 static void     SpawnBullet(WeaponType type, CP_Vector pos, CP_Vector direction, float speedMul, float lifeMul);
 static void     FireWeapon(void);
 static void     SpawnZombie(void);
@@ -234,7 +235,9 @@ static void UpdatePlayerMovementAndAim(float deltaTime)
 			player.hp -= cost;                   // every shot costs health
 			FireWeapon();                        // spawns the bullet(s) at the gun tip, using the gun's stats
 			s_fireTimer = s_weapons[player.weapon].fireDelay; // reset fire cooldown
+			player.combatTimer = 0.0f;          // shooting resets out-of-combat timer
 		}
+
 	}
 
 	// refused-shot flash fades out
@@ -242,6 +245,27 @@ static void UpdatePlayerMovementAndAim(float deltaTime)
 
 	// the pale "ghost" bar trails behind the real bar so you can see how much a shot cost
 	player.ghostHp = CP_Math_ClampFloat(player.ghostHp - GHOST_DRAIN_RATE * deltaTime, player.hp, player.maxHp);
+
+	// --- OUT-OF-COMBAT HEALTH REGENERATION ---
+	// If the player hasn't shot or taken damage, increase the timer
+	player.combatTimer += deltaTime;
+
+	// After 5 seconds of inactivity, slowly regenerate HP (e.g., 10 HP per second)
+	if (player.combatTimer >= 5.0f && player.hp < player.maxHp)
+	{
+		float regenRate = 5.0f; // Amount of HP healed per second
+		player.hp += regenRate * deltaTime;
+
+		// Clamp so it never exceeds max HP
+		if (player.hp > player.maxHp) {
+			player.hp = player.maxHp;
+		}
+
+		// Keep ghost health bar in sync so it looks smooth
+		if (player.ghostHp < player.hp) {
+			player.ghostHp = player.hp;
+		}
+	}
 }
 
 // Player body + gun barrel.
@@ -366,43 +390,48 @@ static void DrawHud(void)
 	}
 
 	// ==========================================
-	// 2. TOP-LEFT: HEALTH BAR
+	// 2. TOP-LEFT: HEALTH BAR (Syahmi)
 	// ==========================================
 	char buf[160];
-	const Player* p = &player; // Fixed syntax error here
+	const Player* p = &player; // Pointer to the player struct
 
-	const float bx = 30.0f;
-	const float by = 28.0f;
-	const float bw = 380.0f;
-	const float bh = 30.0f;
+	// Define the positioning and dimensions of the health bar on the screen
+	const float bx = 30.0f; // X-coordinate (left margin)
+	const float by = 28.0f; // Y-coordinate (top margin)
+	const float bw = 380.0f; // Total width of the health bar
+	const float bh = 30.0f; // Height of the health bar
 
-	float ratio = CP_Math_ClampFloat(p->hp / p->maxHp, 0.0f, 1.0f);
-	float ghost = CP_Math_ClampFloat(p->ghostHp / p->maxHp, 0.0f, 1.0f);
+	float ratio = CP_Math_ClampFloat(p->hp / p->maxHp, 0.0f, 1.0f);           // Current active health ratio
+	float ghost = CP_Math_ClampFloat(p->ghostHp / p->maxHp, 0.0f, 1.0f);     // Trailing ghost health ratio
 
+	// Dynamically change health bar color based on remaining health percentage:
+	// - Green (> 50%) for healthy state
+	// - Yellow (25% - 50%) for warning state
+	// - Red (< 25%) for critical danger state
 	CP_Color hpCol = ratio > 0.5f ? Col(70, 200, 90, 255) :
 		(ratio > 0.25f ? Col(230, 190, 50, 255) :
 			Col(220, 50, 50, 255));
 
-	// Background backing
+	// Draw a dark background bounding box/border behind the health bar for UI contrast
 	G_Rect(bx - 4.0f, by - 4.0f, bw + 8.0f, bh + 8.0f, Col(0, 0, 0, 170));
 
-	// Ghost health bar
+	// Draw the white trailing "ghost" health bar underneath the active bar to visualize recent health costs
 	G_Rect(bx, by, bw * ghost, bh, Col(255, 255, 255, 130));
 
-	// Active health bar
+	// Draw the main active health bar reflecting the player's exact current HP pool
 	G_Rect(bx, by, bw * ratio, bh, hpCol);
 
-	// Red flash if shot refused due to low health
+	// If the player tries to shoot without enough health, flash a red warning overlay over the health bar
 	if (player.noFireFlash > 0.0f)
 	{
 		G_Rect(bx - 4.0f, by - 4.0f, bw + 8.0f, bh + 8.0f, Col(255, 0, 0, (int)(player.noFireFlash / 0.35f * 200.0f)));
 	}
 
-	// Health text on the bar
+	// Render text over the health bar displaying exact numerical values (e.g., "HP 80 / 100")
 	snprintf(buf, sizeof(buf), "HP %.0f / %.0f", player.hp, player.maxHp);
 	G_Text(buf, bx + bw * 0.5f, by + bh * 0.5f, 20.0f, Col(255, 255, 255, 255), AL_CENTER);
 
-	// Active weapon drain label at bottom center
+	// Render the active weapon name, its cost description, and the exact HP cost per shot at the bottom center of the screen
 	snprintf(buf, sizeof(buf), "%s: %s  -  costs %.1f HP now", s_weapons[player.weapon].name, s_weapons[player.weapon].drain, GetShotCost(player.weapon));
 	G_Text(buf, screenW * 0.5f, screenH - 22.0f, 22.0f, Col(230, 230, 230, 255), AL_CENTER);
 }
@@ -796,6 +825,8 @@ static void UpdateZombies(float deltaTime)
 			{
 				player.hp -= z->damage;
 				z->attackTimer = 0.8f; // Attack interval
+
+				player.combatTimer = 0.0f;      // taking damage resets out-of-combat timer
 			}
 		}
 	}
