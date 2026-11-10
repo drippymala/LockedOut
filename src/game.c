@@ -124,16 +124,16 @@ static float    windowWidth = 1600.0f;
 static float    windowHeight = 900.0f;
 static Player   player;
 static bool     s_paused = false;   // true while the pause menu is showing
-static void SpawnBullet(WeaponType type, CP_Vector pos, CP_Vector direction, float speedMul, float lifeMul);
-static void FireWeapon(void);
-static void SpawnZombie(void);
-static float s_fireTimer = 0.0f;
-static int   s_nextZombieId = 1;        // unique id per zombie so piercing bullets don't double-hit
-static float s_zombieSpawnTimer = 0.0f; // Timer between spawns
-static int   s_wave = 0;              // Current wave number
-static int   s_toSpawn = 0;           // How many zombies left to spawn this wave
-static float s_spawnTimer = 0.0f;     // Delay between each spawn
-static float s_waveClearTimer = 0.0f; // Delay before the next wave begins
+static void     SpawnBullet(WeaponType type, CP_Vector pos, CP_Vector direction, float speedMul, float lifeMul);
+static void     FireWeapon(void);
+static void     SpawnZombie(void);
+static float    s_fireTimer = 0.0f;
+static int      s_nextZombieId = 1;        // unique id per zombie so piercing bullets don't double-hit
+static float    s_zombieSpawnTimer = 0.0f; // Timer between spawns
+static int      s_wave = 0;              // Current wave number
+static int      s_toSpawn = 0;           // How many zombies left to spawn this wave
+static float    s_spawnTimer = 0.0f;     // Delay between each spawn
+static float    s_waveClearTimer = 0.0f; // Delay before the next wave begins
 
 /* ---------- Logic & Rendering ---------- */
 
