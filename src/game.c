@@ -40,11 +40,15 @@
 #define GHOST_DRAIN_RATE           70.0f   // how fast the pale "ghost" bar catches up (HP per second)
 
 // ---- player hitbox / zombie contact damage ----
-#define PLAYER_HIT_INVULN          0.30f   // grace time after a zombie hit (player blinks)
-#define PLAYER_HIT_FLASH_TIME      0.35f   // red screen flash when bitten
 #define ZOMBIE_ATTACK_COOLDOWN     0.80f   // seconds between bites from the same zombie
 #define ZOMBIE_HIT_FLASH_TIME      0.08f   // white flash when a bullet hits a zombie
 #define DEG_TO_RAD                 0.01745329f
+#define OVERLAP_PASSES             4       // how many times per frame overlaps are pushed apart
+#define PLAYER_HIGHLIGHT_OFFSET    4.0f    // offset of the shine spot on the player's body
+#define CROSSHAIR_RING_RADIUS      11.0f
+#define CROSSHAIR_TICK_START       14.0f
+#define CROSSHAIR_TICK_END         20.0f
+#define CROSSHAIR_THICKNESS        2.0f
 
 typedef enum { Z_WALKER, Z_RUNNER, Z_BRUTE } ZombieType;
 typedef enum { W_PISTOL, W_TARGET_LOCK, W_PARASITE, W_MINIGUN, W_HEALTH_LASER, W_COUNT } WeaponType;
@@ -89,7 +93,7 @@ typedef struct
 typedef struct
 {
 	CP_Vector position;
-	float     aimAngleRadians;
+	CP_Vector aimDirection;   // unit vector from the player toward the mouse
 
 	float hp;       // Player's current health
 	float maxHp;    // Player's maximum health
@@ -100,8 +104,6 @@ typedef struct
 
 	float rampTime;     // minigun: how long the trigger has been held
 	float noFireFlash;  // red flash on the health bar when a shot is refused
-	float invuln;       // seconds of invulnerability left after being bitten
-	float hitFlash;     // seconds left on the red "you got hit" screen flash
 } Player;
 
 typedef struct
@@ -122,7 +124,7 @@ static float    windowWidth = 1600.0f;
 static float    windowHeight = 900.0f;
 static Player   player;
 static bool     s_paused = false;   // true while the pause menu is showing
-static void SpawnBullet(WeaponType type, CP_Vector pos, float angle, float speedMul, float lifeMul);
+static void SpawnBullet(WeaponType type, CP_Vector pos, CP_Vector direction, float speedMul, float lifeMul);
 static void FireWeapon(void);
 static void SpawnZombie(void);
 static float s_fireTimer = 0.0f;
@@ -157,27 +159,41 @@ static float GetShotCost(WeaponType w)
 	}
 }
 
-static void UpdatePlayerMovementAndAim(float deltaTime)
+// WASD movement.
+static void MovePlayer(float deltaTime)
 {
-	CP_Vector inputDirection = CP_Vector_Set(0.0f, 0.0f);
+	CP_Vector input = CP_Vector_Set(0.0f, 0.0f);
+	if (CP_Input_KeyDown(KEY_W)) input.y -= 1.0f;   // screen y grows downward
+	if (CP_Input_KeyDown(KEY_S)) input.y += 1.0f;
+	if (CP_Input_KeyDown(KEY_A)) input.x -= 1.0f;
+	if (CP_Input_KeyDown(KEY_D)) input.x += 1.0f;
 
-	if (CP_Input_KeyDown(KEY_W)) inputDirection.y -= 1.0f;
-	if (CP_Input_KeyDown(KEY_S)) inputDirection.y += 1.0f;
-	if (CP_Input_KeyDown(KEY_A)) inputDirection.x -= 1.0f;
-	if (CP_Input_KeyDown(KEY_D)) inputDirection.x += 1.0f;
+	// normalised so moving diagonally isn't faster
+	CP_Vector direction = GetNormalizedDirection(input);
+	player.position = CP_Vector_Add(player.position, CP_Vector_Scale(direction, PLAYER_SPEED * deltaTime));
 
-	// --- movement (WASD) --- done before aiming/shooting so bullets leave from where you are this frame
-	CP_Vector moveDirection = GetNormalizedDirection(inputDirection);
-	CP_Vector velocity = CP_Vector_Scale(moveDirection, PLAYER_SPEED * deltaTime);
-	player.position = CP_Vector_Add(player.position, velocity);
-
+	// keep the player inside the window
 	player.position.x = CP_Math_ClampFloat(player.position.x, PLAYER_RADIUS, windowWidth - PLAYER_RADIUS);
 	player.position.y = CP_Math_ClampFloat(player.position.y, PLAYER_RADIUS, windowHeight - PLAYER_RADIUS);
+}
 
-	// --- mouse aim --- must be worked out BEFORE firing, otherwise the bullet uses last frame's angle
-	float mouseDeltaX = CP_Input_GetMouseX() - player.position.x;
-	float mouseDeltaY = CP_Input_GetMouseY() - player.position.y;
-	player.aimAngleRadians = atan2f(mouseDeltaY, mouseDeltaX);
+// Point the gun at the mouse.
+static void AimPlayerAtMouse(void)
+{
+	CP_Vector mouse = CP_Vector_Set(CP_Input_GetMouseX(), CP_Input_GetMouseY());
+	CP_Vector toMouse = CP_Vector_Subtract(mouse, player.position);
+
+	// if the mouse is exactly on the player there is no direction, so keep the last aim
+	if (CP_Vector_Length(toMouse) > 0.0001f)
+	{
+		player.aimDirection = CP_Vector_Normalize(toMouse);
+	}
+}
+
+static void UpdatePlayerMovementAndAim(float deltaTime)
+{
+	MovePlayer(deltaTime);   // WASD, before aiming/shooting so bullets leave from where you are this frame
+	AimPlayerAtMouse();      // must be worked out BEFORE firing
 
 	//for guns
 	if (CP_Input_KeyTriggered(KEY_1) && player.owned[W_PISTOL])       player.weapon = W_PISTOL;
@@ -224,12 +240,81 @@ static void UpdatePlayerMovementAndAim(float deltaTime)
 	// refused-shot flash fades out
 	player.noFireFlash = CP_Math_ClampFloat(player.noFireFlash - deltaTime, 0.0f, 1.0f);
 
-	// player hitbox timers: invulnerability window + red screen flash after a bite
-	player.invuln = CP_Math_ClampFloat(player.invuln - deltaTime, 0.0f, PLAYER_HIT_INVULN);
-	player.hitFlash = CP_Math_ClampFloat(player.hitFlash - deltaTime, 0.0f, PLAYER_HIT_FLASH_TIME);
-
 	// the pale "ghost" bar trails behind the real bar so you can see how much a shot cost
 	player.ghostHp = CP_Math_ClampFloat(player.ghostHp - GHOST_DRAIN_RATE * deltaTime, player.hp, player.maxHp);
+}
+
+// Player body + gun barrel.
+static void DrawPlayerSprite(void)
+{
+	int alpha = 255;
+
+	// the gun barrel takes the colour of the selected weapon
+	const WeaponDef* weapon = &s_weapons[player.weapon];
+	CP_Color gunColor       = Col(weapon->r, weapon->g, weapon->b, alpha);
+	CP_Color bodyColor      = Col(60, 130, 220, alpha);
+	CP_Color highlightColor = Col(120, 185, 255, alpha);
+
+	// the barrel starts at the player's centre and points toward the mouse
+	CP_Vector gunTip = CP_Vector_Add(player.position, CP_Vector_Scale(player.aimDirection,PLAYER_RADIUS + GUN_BARREL_LENGTH));
+
+	DrawColoredLine(player.position.x, player.position.y, gunTip.x, gunTip.y, GUN_BARREL_THICKNESS, gunColor);
+	DrawFilledCircle(player.position.x, player.position.y, PLAYER_RADIUS, bodyColor);
+	DrawFilledCircle(player.position.x - PLAYER_HIGHLIGHT_OFFSET, player.position.y - PLAYER_HIGHLIGHT_OFFSET,
+		PLAYER_RADIUS * 0.45f, highlightColor);
+}
+
+// Ring with four tick marks around the mouse position, coloured like the selected weapon.
+static void DrawMouseCrosshair(void)
+{
+	float mouseX = CP_Input_GetMouseX();
+	float mouseY = CP_Input_GetMouseY();
+	const WeaponDef* weapon = &s_weapons[player.weapon];
+	CP_Color color = Col(weapon->r, weapon->g, weapon->b, 230);
+
+	float in  = CROSSHAIR_TICK_START;   // each tick starts this far from the centre...
+	float out = CROSSHAIR_TICK_END;     // ...and ends this far
+
+	DrawCircleOutline(mouseX, mouseY, CROSSHAIR_RING_RADIUS, CROSSHAIR_THICKNESS, color);
+	DrawColoredLine(mouseX - out, mouseY, mouseX - in, mouseY, CROSSHAIR_THICKNESS, color);   // left
+	DrawColoredLine(mouseX + in, mouseY, mouseX + out, mouseY, CROSSHAIR_THICKNESS, color);   // right
+	DrawColoredLine(mouseX, mouseY - out, mouseX, mouseY - in, CROSSHAIR_THICKNESS, color);   // up
+	DrawColoredLine(mouseX, mouseY + in, mouseX, mouseY + out, CROSSHAIR_THICKNESS, color);   // down
+}
+
+// Squared distance from point p to the line segment a-b.
+// Used for the bullet hitbox: we test the whole path the bullet travelled this frame,
+// not just where it ended up, so fast bullets (e.g. 2400 px/s Health Laser) can't skip through a zombie.
+static float PointSegDistSq(CP_Vector p, CP_Vector a, CP_Vector b)
+{
+	CP_Vector ab = CP_Vector_Subtract(b, a);
+	float len2 = ab.x * ab.x + ab.y * ab.y;
+	float t = 0.0f;
+	if (len2 > 0.0001f)
+	{
+		CP_Vector ap = CP_Vector_Subtract(p, a);
+		t = CP_Math_ClampFloat((ap.x * ab.x + ap.y * ab.y) / len2, 0.0f, 1.0f);
+	}
+	CP_Vector closest = CP_Vector_Add(a, CP_Vector_Scale(ab, t));
+	float dx = p.x - closest.x;
+	float dy = p.y - closest.y;
+	return dx * dx + dy * dy;
+}
+
+//set true false for if bullet has hit a zombie.
+//let bullet pierce thru zombie once and only damage once until bullet leaves zombie.
+static bool BulletAlreadyHit(const Bullet* b, int zombieId)
+{
+	int n;
+	if (b->hitCount < MAX_PIERCE_TRACK) {
+		n = b->hitCount;
+	}
+	else {
+		n = MAX_PIERCE_TRACK;
+	}for (int i = 0; i < n; ++i) {
+		if (b->hitIds[i] == zombieId) return true; // Already damaged this zombie, skip!
+	}
+	return false;
 }
 
 static void DrawBackgroundGrid(void)
@@ -247,40 +332,6 @@ static void DrawBackgroundGrid(void)
 	{
 		DrawColoredLine(0.0f, y, windowWidth, y, 1.0f, gridLineColor);
 	}
-}
-
-static void DrawPlayerSprite(void)
-{
-	// blink while invulnerable after a zombie hit, so the player can see they got bitten
-	int alpha = (player.invuln > 0.0f && ((int)(CP_System_GetSeconds() * 30.0f) % 2) == 0) ? 110 : 255;
-
-	// the gun barrel takes the colour of the selected weapon
-	const WeaponDef* def = &s_weapons[player.weapon];
-	CP_Color gunColor = Col(def->r, def->g, def->b, alpha);
-	CP_Color bodyColor = Col(60, 130, 220, alpha);
-	CP_Color highlightColor = Col(120, 185, 255, alpha);
-
-	CP_Vector aimDirection = CP_Vector_Set(cosf(player.aimAngleRadians), sinf(player.aimAngleRadians));
-	float     barrelReach = PLAYER_RADIUS + GUN_BARREL_LENGTH;
-	CP_Vector gunTipPos = CP_Vector_Add(player.position, CP_Vector_Scale(aimDirection, barrelReach));
-
-	DrawColoredLine(player.position.x, player.position.y, gunTipPos.x, gunTipPos.y, GUN_BARREL_THICKNESS, gunColor);
-	DrawFilledCircle(player.position.x, player.position.y, PLAYER_RADIUS, bodyColor);
-	DrawFilledCircle(player.position.x - 4.0f, player.position.y - 4.0f, PLAYER_RADIUS * 0.45f, highlightColor);
-}
-
-static void DrawMouseCrosshair(void)
-{
-	float    mouseX = CP_Input_GetMouseX();
-	float    mouseY = CP_Input_GetMouseY();
-	const WeaponDef* def = &s_weapons[player.weapon];
-	CP_Color crosshairColor = Col(def->r, def->g, def->b, 230);
-
-	DrawCircleOutline(mouseX, mouseY, 11.0f, 2.0f, crosshairColor);
-	DrawColoredLine(mouseX - 20.0f, mouseY, mouseX - 14.0f, mouseY, 2.0f, crosshairColor);
-	DrawColoredLine(mouseX + 14.0f, mouseY, mouseX + 20.0f, mouseY, 2.0f, crosshairColor);
-	DrawColoredLine(mouseX, mouseY - 20.0f, mouseX, mouseY - 14.0f, 2.0f, crosshairColor);
-	DrawColoredLine(mouseX, mouseY + 14.0f, mouseX, mouseY + 20.0f, 2.0f, crosshairColor);
 }
 
 static void DrawHud(void)
@@ -367,7 +418,7 @@ static void DrawPauseOverlay(void)
 //BULLETS
 static Bullet M_bullets[MAX_BULLETS];
 
-static void SpawnBullet(WeaponType type, CP_Vector pos, float angle, float speedMul, float lifeMul)
+static void SpawnBullet(WeaponType type, CP_Vector pos, CP_Vector direction, float speedMul, float lifeMul)
 {
 	//check which weapons 
 	const WeaponDef* def = &s_weapons[type];
@@ -382,7 +433,7 @@ static void SpawnBullet(WeaponType type, CP_Vector pos, float angle, float speed
 			.active = true,
 			.type = type,
 			.pos = pos,
-			.vel = CP_Vector_Set(cosf(angle) * spd, sinf(angle) * spd),
+			.vel = CP_Vector_Scale(direction, spd),
 			.life = def->life * lifeMul,
 			.damage = def->damage,
 			.radius = def->radius,
@@ -399,54 +450,22 @@ static void FireWeapon(void)
 	const WeaponDef* def = &s_weapons[player.weapon];
 
 	// Bullet emerges from the gun tip
-	CP_Vector aimDir = CP_Vector_Set(cosf(player.aimAngleRadians), sinf(player.aimAngleRadians));
 	float barrelReach = PLAYER_RADIUS + GUN_BARREL_LENGTH;
-	CP_Vector gunTipPos = CP_Vector_Add(player.position, CP_Vector_Scale(aimDir, barrelReach));
+	CP_Vector gunTipPos = CP_Vector_Add(player.position, CP_Vector_Scale(player.aimDirection, barrelReach));
 
 	float halfSpread = def->spreadDeg * 0.5f * DEG_TO_RAD;
 	for (int i = 0; i < def->pellets; ++i)
 	{
-		float angle = player.aimAngleRadians + CP_Random_RangeFloat(-halfSpread, halfSpread);
+		// rotate the aim direction by a random angle inside the spread cone
+		float spread = CP_Random_RangeFloat(-halfSpread, halfSpread);
+		CP_Vector direction = CP_Vector_Set(
+			player.aimDirection.x * cosf(spread) - player.aimDirection.y * sinf(spread),
+			player.aimDirection.x * sinf(spread) + player.aimDirection.y * cosf(spread));
 		// multi-pellet guns get slightly uneven speed/range so the spread looks natural
 		float speedMul = (def->pellets > 1) ? CP_Random_RangeFloat(0.85f, 1.10f) : 1.0f;
 		float lifeMul = (def->pellets > 1) ? CP_Random_RangeFloat(0.80f, 1.10f) : 1.0f;
-		SpawnBullet(player.weapon, gunTipPos, angle, speedMul, lifeMul);
+		SpawnBullet(player.weapon, gunTipPos, direction, speedMul, lifeMul);
 	}
-}
-
-// Squared distance from point p to the line segment a-b.
-// Used for the bullet hitbox: we test the whole path the bullet travelled this frame,
-// not just where it ended up, so fast bullets (e.g. 2400 px/s Health Laser) can't skip through a zombie.
-static float PointSegDistSq(CP_Vector p, CP_Vector a, CP_Vector b)
-{
-	CP_Vector ab = CP_Vector_Subtract(b, a);
-	float len2 = ab.x * ab.x + ab.y * ab.y;
-	float t = 0.0f;
-	if (len2 > 0.0001f)
-	{
-		CP_Vector ap = CP_Vector_Subtract(p, a);
-		t = CP_Math_ClampFloat((ap.x * ab.x + ap.y * ab.y) / len2, 0.0f, 1.0f);
-	}
-	CP_Vector closest = CP_Vector_Add(a, CP_Vector_Scale(ab, t));
-	float dx = p.x - closest.x;
-	float dy = p.y - closest.y;
-	return dx * dx + dy * dy;
-}
-
-//set true false for if bullet has hit a zombie.
-//let bullet pierce thru zombie once and only damage once until bullet leaves zombie.
-static bool BulletAlreadyHit(const Bullet* b, int zombieId)
-{
-	int n;
-	if (b->hitCount < MAX_PIERCE_TRACK) {
-		n = b->hitCount;
-	}
-	else {
-		n = MAX_PIERCE_TRACK;
-	}for (int i = 0; i < n; ++i) {
-		if (b->hitIds[i] == zombieId) return true; // Already damaged this zombie, skip!
-	}
-	return false;
 }
 
 static void DrawBullets(void)
@@ -767,9 +786,10 @@ static void UpdateZombies(float deltaTime)
 		z->pos = CP_Vector_Add(z->pos, CP_Vector_Scale(moveDir, z->speed * deltaTime));
 
 		// Damage player if touching
-		//hit box from prev code s
 		float hitDist = PLAYER_RADIUS + z->radius;
-		if (CP_Vector_Distance(player.position, z->pos) <= hitDist)
+		float dist = CP_Vector_Distance(player.position, z->pos);
+
+		if (dist <= hitDist)
 		{
 			z->attackTimer -= deltaTime;
 			if (z->attackTimer <= 0.0f)
@@ -782,6 +802,57 @@ static void UpdateZombies(float deltaTime)
 }
 
 
+// Pushes circles apart until nothing overlaps: zombie vs zombie, and zombie vs player.
+// Runs once per frame after everything has moved, so overlaps never reach the screen.
+static void ResolveOverlaps(void)
+{
+	// a few passes, because fixing one overlap can create another in a crowd
+	for (int pass = 0; pass < OVERLAP_PASSES; ++pass)
+	{
+		// ---- zombie vs zombie: each one moves half of the overlap ----
+		for (int i = 0; i < MAX_ZOMBIES; ++i)
+		{
+			if (!s_zombies[i].active) continue;
+
+			for (int j = i + 1; j < MAX_ZOMBIES; ++j)
+			{
+				if (!s_zombies[j].active) continue;
+
+				Zombie* a = &s_zombies[i];
+				Zombie* b = &s_zombies[j];
+
+				CP_Vector fromAToB = CP_Vector_Subtract(b->pos, a->pos);
+				float distance = CP_Vector_Length(fromAToB);
+				float touchingDistance = a->radius + b->radius;
+				if (distance >= touchingDistance) continue;           // not overlapping
+
+				// direction to push along (if both are exactly on top of each other, pick any)
+				CP_Vector direction = (distance > 0.0001f) ? CP_Vector_Normalize(fromAToB) : CP_Vector_Set(1.0f, 0.0f);
+				float halfOverlap = (touchingDistance - distance) * 0.5f;
+
+				a->pos = CP_Vector_Subtract(a->pos, CP_Vector_Scale(direction, halfOverlap));
+				b->pos = CP_Vector_Add(b->pos, CP_Vector_Scale(direction, halfOverlap));
+			}
+		}
+
+		// ---- zombie vs player: the player doesn't move, so the zombie moves the whole overlap ----
+		for (int i = 0; i < MAX_ZOMBIES; ++i)
+		{
+			Zombie* z = &s_zombies[i];
+			if (!z->active) continue;
+
+			CP_Vector fromPlayerToZombie = CP_Vector_Subtract(z->pos, player.position);
+			float distance = CP_Vector_Length(fromPlayerToZombie);
+			float touchingDistance = PLAYER_RADIUS + z->radius;
+			if (distance >= touchingDistance) continue;               // not overlapping
+
+			CP_Vector direction = (distance > 0.0001f) ? CP_Vector_Normalize(fromPlayerToZombie) : CP_Vector_Set(1.0f, 0.0f);
+			z->pos = CP_Vector_Add(player.position, CP_Vector_Scale(direction, touchingDistance));
+		}
+	}
+}
+
+
 static void Render(void)
 {
 	DrawBackgroundGrid();
@@ -789,12 +860,6 @@ static void Render(void)
 	DrawBullets();
 	DrawPlayerSprite();
 	DrawHud();
-
-	// red flash over the screen when a zombie bites you
-	if (player.hitFlash > 0.0f)
-	{
-		G_Rect(0.0f, 0.0f, windowWidth, windowHeight, Col(200, 0, 0, (int)(player.hitFlash / PLAYER_HIT_FLASH_TIME * 90.0f)));
-	}
 
 	if (s_paused) DrawPauseOverlay();
 	else          DrawMouseCrosshair();   // hide the crosshair while paused
@@ -1005,7 +1070,7 @@ void Game_Init(void)
 	windowHeight = (float)CP_System_GetWindowHeight();
 
 	player.position = CP_Vector_Set(windowWidth * 0.5f, windowHeight * 0.5f);
-	player.aimAngleRadians = 0.0f;
+	player.aimDirection = CP_Vector_Set(1.0f, 0.0f);   // start aiming right
 
 	// Initialize player health
 	player.hp = 100.0f;       // Player starts with 100 HP
@@ -1013,8 +1078,6 @@ void Game_Init(void)
 	player.ghostHp = 100.0f;  // Ghost health starts at maximum HP
 	player.rampTime = 0.0f;
 	player.noFireFlash = 0.0f;
-	player.invuln = 0.0f;
-	player.hitFlash = 0.0f;
 	s_fireTimer = 0.3f;
 
 	//weapon ownership and selection
@@ -1085,6 +1148,7 @@ void Game_Update(void)
 		UpdateZombies(deltaTime);
 		UpdateBullets(deltaTime);
 		UpdateWave(deltaTime);   // <-- Manages spawning & wave progression
+		ResolveOverlaps();      // last, so knockback and fresh spawns can't leave anything overlapping
 	}
 
 	Render();

@@ -17,47 +17,23 @@
 #include "utils.h"
 #include "game.h"
 
-//#if 0
-// Template globals (declared extern in mainmenu.h)
+
 CP_Font myFont;
 CP_Image myImage;
 
-
-// CProcessing has no built-in font, so we load one ourselves.
-// It tries your project's Assets folder first, then common Windows fonts.
+// Loads the game font if it isn't loaded yet, then makes it the active font.
 void Font_EnsureLoaded(void)
 {
-	static const char* candidates[] =
-	{
-		"./Assets/Exo2-Regular.ttf",
-		"Assets/Exo2-Regular.ttf",
-		"C:/Windows/Fonts/arial.ttf",
-		"C:/Windows/Fonts/segoeui.ttf",
-		"C:/Windows/Fonts/calibri.ttf"
-	};
-
 	if (!myFont)
 	{
-		for (int i = 0; i < (int)(sizeof(candidates) / sizeof(candidates[0])) && !myFont; ++i)
-		{
-			FILE* f = fopen(candidates[i], "rb");        // only load files that really exist
-			if (f)
-			{
-				fclose(f);
-				myFont = CP_Font_Load(candidates[i]);
-			}
-		}
+		myFont = CP_Font_Load("Assets/Exo2-Regular.ttf");
 	}
-	if (myFont) CP_Font_Set(myFont);
+	CP_Font_Set(myFont);
 }
 
-#define MENU_GHOSTS 16
-
 typedef struct { float x, y, w, h; const char* label; } MenuButton;
-typedef struct { CP_Vector pos, vel; float radius; } MenuGhost;
 
 static MenuButton s_playButton, s_quitButton;
-static MenuGhost  s_ghosts[MENU_GHOSTS];
 static float      s_menuW = 1600.0f, s_menuH = 900.0f;
 static float      s_menuTime;
 static float      s_k = 1.0f;     // UI scale: 1.0 at 1600x900, smaller for smaller windows
@@ -93,7 +69,7 @@ static void M_Circle(float x, float y, float radius, CP_Color c)
 
 static void M_Rect(float x, float y, float w, float h, CP_Color c)
 {
-	CP_Settings_RectMode(CP_POSITION_CORNER);        // CProcessing defaults to CENTER, so be explicit
+	CP_Settings_RectMode(CP_POSITION_CORNER);        
 	CP_Settings_NoStroke();
 	CP_Settings_Fill(c);
 	CP_Graphics_DrawRect(x, y, w, h);
@@ -180,14 +156,6 @@ void Main_Menu_Init(void)
 	s_quitButton = s_playButton;
 	s_quitButton.y = 410.0f * s_k;
 	s_quitButton.label = "QUIT";
-
-	// background decoration: zombies shambling across the menu
-	for (int i = 0; i < MENU_GHOSTS; ++i)
-	{
-		s_ghosts[i].pos = CP_Vector_Set(CP_Random_RangeFloat(0.0f, s_menuW), CP_Random_RangeFloat(0.0f, s_menuH));
-		s_ghosts[i].vel = CP_Vector_Set(CP_Random_RangeFloat(-40.0f, 40.0f), CP_Random_RangeFloat(-40.0f, 40.0f));
-		s_ghosts[i].radius = CP_Random_RangeFloat(14.0f, 26.0f);
-	}
 }
 
 void Main_Menu_Update(void)
@@ -213,56 +181,6 @@ void Main_Menu_Update(void)
 
 	// ---- draw ----
 	CP_Graphics_ClearBackground(CP_Color_Create(18, 22, 16, 255));
-
-	for (int i = 0; i < MENU_GHOSTS; ++i)
-	{
-		// Get the address of the current ghost
-		MenuGhost* g = &s_ghosts[i];
-
-		// Move the ghost according to its velocity and elapsed time
-		(*g).pos.x += (*g).vel.x * dt;
-		(*g).pos.y += (*g).vel.y * dt;
-
-		// If the ghost moves past the left edge, move it to the right edge
-		if ((*g).pos.x < -40.0f)
-		{
-			(*g).pos.x = s_menuW + 40.0f;
-		}
-
-		// If the ghost moves past the right edge, move it to the left edge
-		if ((*g).pos.x > s_menuW + 40.0f)
-		{
-			(*g).pos.x = -40.0f;
-		}
-
-		// If the ghost moves past the top edge, move it to the bottom
-		if ((*g).pos.y < -40.0f)
-		{
-			(*g).pos.y = s_menuH + 40.0f;
-		}
-
-		// If the ghost moves past the bottom edge, move it to the top
-		if ((*g).pos.y > s_menuH + 40.0f)
-		{
-			(*g).pos.y = -40.0f;
-		}
-
-		// Draw the ghost's body
-		M_Circle((*g).pos.x, (*g).pos.y, (*g).radius,
-			CP_Color_Create(70, 120, 65, 90));
-
-		// Draw the ghost's left eye
-		M_Circle((*g).pos.x - (*g).radius * 0.35f,
-			(*g).pos.y - (*g).radius * 0.2f,
-			(*g).radius * 0.18f,
-			CP_Color_Create(255, 40, 40, 120));
-
-		// Draw the ghost's right eye
-		M_Circle((*g).pos.x + (*g).radius * 0.35f,
-			(*g).pos.y - (*g).radius * 0.2f,
-			(*g).radius * 0.18f,
-			CP_Color_Create(255, 40, 40, 120));
-	}
 
 	// title (gently pulsing)
 	float pulse = 0.5f + 0.5f * sinf(s_menuTime * 2.5f);
