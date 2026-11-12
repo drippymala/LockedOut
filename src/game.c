@@ -22,7 +22,7 @@
 #define GUN_BARREL_LENGTH    14.0f
 #define GUN_BARREL_THICKNESS 9.0f
 #define GRID_CELL_SIZE       100.0f
-#define MAX_DELTA_TIME       0.05f
+#define MAX_DELTA_TIME       0.033f // 30 fps cap: a 900 px/s bullet moves at most ~30 px/frame, less than the smallest hitbox (34 px)
 #define MAX_ZOMBIES          128
 #define MAX_BULLETS       512 // max amt of bullets
 
@@ -47,7 +47,6 @@
 // ---- player hitbox / zombie contact damage ----
 #define ZOMBIE_ATTACK_COOLDOWN     0.80f   // seconds between bites from the same zombie
 #define ZOMBIE_HIT_FLASH_TIME      0.08f   // white flash when a bullet hits a zombie
-#define DEG_TO_RAD                 0.01745329f
 #define OVERLAP_PASSES             4       // how many times per frame overlaps are pushed apart
 #define PLAYER_HIGHLIGHT_OFFSET    4.0f    // offset of the shine spot on the player's body
 #define CROSSHAIR_RING_RADIUS      11.0f
@@ -76,15 +75,14 @@ typedef struct
 	float radius;
 	float damage;
 	float life;             // seconds before the bullet disappears
-	float spreadDeg;        // total cone angle
 	int   r, g, b;
 } WeaponDef;
 
 
 static const WeaponDef s_weapons[W_COUNT] =
 {
-	//   name             drain description                          delay    speed    rad    dmg    life  spread   colour (R, G, B)
-	{ "PISTOL",       "flat cost per shot",                      0.25f,   900.0f,  5.0f,  20.0f, 1.20f,  1.5f,   255, 230, 120 }
+	//   name             drain description                          delay    speed    rad    dmg    life   colour (R, G, B)
+	{ "PISTOL",       "flat cost per shot",                      0.25f,   900.0f,  5.0f,  20.0f, 1.20f,  255, 230, 120 }
 };
 
 typedef struct
@@ -323,25 +321,6 @@ static void DrawMouseCrosshair(void)
 	DrawColoredLine(mouseX, mouseY + in, mouseX, mouseY + out, CROSSHAIR_THICKNESS, color);   // down
 }
 
-// Squared distance from point p to the line segment a-b.
-// Used for the bullet hitbox: we test the whole path the bullet travelled this frame,
-// not just where it ended up, so a fast bullet (or a long frame) can't skip through a zombie.
-static float PointSegDistSq(CP_Vector p, CP_Vector a, CP_Vector b)
-{
-	CP_Vector ab = CP_Vector_Subtract(b, a);
-	float len2 = ab.x * ab.x + ab.y * ab.y;
-	float t = 0.0f;
-	if (len2 > 0.0001f)
-	{
-		CP_Vector ap = CP_Vector_Subtract(p, a);
-		t = CP_Math_ClampFloat((ap.x * ab.x + ap.y * ab.y) / len2, 0.0f, 1.0f);
-	}
-	CP_Vector closest = CP_Vector_Add(a, CP_Vector_Scale(ab, t));
-	float dx = p.x - closest.x;
-	float dy = p.y - closest.y;
-	return dx * dx + dy * dy;
-}
-
 static void DrawBackgroundGrid(void)
 {
 	CP_Color backgroundColor = Col(28, 34, 26, 255);
@@ -494,24 +473,14 @@ static void SpawnBullet(WeaponType type, CP_Vector pos, CP_Vector direction, flo
 	}
 }
 
-// Fires one bullet from the gun tip, using the selected weapon's stats from s_weapons.
-// spreadDeg = random cone the bullet flies in.
+// Fires one bullet from the gun tip, straight toward the mouse.
 static void FireWeapon(void)
 {
-	const WeaponDef* def = &s_weapons[player.weapon];
-
 	// Bullet emerges from the gun tip
 	float barrelReach = PLAYER_RADIUS + GUN_BARREL_LENGTH;
 	CP_Vector gunTipPos = CP_Vector_Add(player.position, CP_Vector_Scale(player.aimDirection, barrelReach));
 
-	// rotate the aim direction by a random angle inside the spread cone
-	float halfSpread = def->spreadDeg * 0.5f * DEG_TO_RAD;
-	float spread = CP_Random_RangeFloat(-halfSpread, halfSpread);
-	CP_Vector direction = CP_Vector_Set(
-		player.aimDirection.x * cosf(spread) - player.aimDirection.y * sinf(spread),
-		player.aimDirection.x * sinf(spread) + player.aimDirection.y * cosf(spread));
-
-	SpawnBullet(player.weapon, gunTipPos, direction, 1.0f, 1.0f);
+	SpawnBullet(player.weapon, gunTipPos, player.aimDirection, 1.0f, 1.0f);
 }
 
 static void DrawBullets(void)
@@ -739,7 +708,6 @@ static void UpdateBullets(float dt)
 		if (!b->active) continue;
 
 		// 1. Move the bullet, bullet vector is scaled by delta time to ensure consistent movement regardless of frame rate
-		CP_Vector prevPos = b->pos;   // remembered for the swept hitbox check below
 		b->pos = CP_Vector_Add(b->pos, CP_Vector_Scale(b->vel, dt));
 		b->life -= dt;
 
@@ -753,15 +721,15 @@ static void UpdateBullets(float dt)
 			continue;
 		}
 
-		// 3. Bullet hitbox vs zombies (swept along the path travelled this frame)
+		// 3. Bullet hitbox vs zombies: do the bullet circle and zombie circle overlap?
+		// (Safe because MAX_DELTA_TIME keeps a bullet's step per frame smaller than the smallest hitbox.)
 		for (int z = 0; z < MAX_ZOMBIES; ++z)
 		{
 			Zombie* zombie = &s_zombies[z];
 			if (!zombie->active) continue;
 
-			// circles touch somewhere along prevPos -> pos ?
-			float hitDist = b->radius + zombie->radius;
-			if (PointSegDistSq(zombie->pos, prevPos, b->pos) > hitDist * hitDist) continue;
+			if (!AreCirclesIntersecting(b->pos.x, b->pos.y, b->radius,
+			                            zombie->pos.x, zombie->pos.y, zombie->radius)) continue;
 
 			// Hurt zombie & trigger hit flash
 			zombie->hp -= b->damage;
@@ -1046,6 +1014,22 @@ static void UpdateZombies(float deltaTime)
 }
 
 
+// Pushes circle A out of circle B so they are exactly touching.
+// shareA = how much of the push A takes: 0.5 = both move half, 1.0 = only A moves.
+static void PushApart(CP_Vector* a, float radiusA, CP_Vector* b, float radiusB, float shareA)
+{
+	CP_Vector fromBToA = CP_Vector_Subtract(*a, *b);
+	float distance = CP_Vector_Length(fromBToA);
+	float overlap = (radiusA + radiusB) - distance;
+	if (overlap <= 0.0f) return;                               // not touching
+
+	// direction to push along (if both are exactly on top of each other, pick any)
+	CP_Vector direction = (distance > 0.0001f) ? CP_Vector_Scale(fromBToA, 1.0f / distance) : CP_Vector_Set(1.0f, 0.0f);
+
+	*a = CP_Vector_Add(*a, CP_Vector_Scale(direction, overlap * shareA));
+	*b = CP_Vector_Subtract(*b, CP_Vector_Scale(direction, overlap * (1.0f - shareA)));
+}
+
 // Pushes circles apart until nothing overlaps: zombie vs zombie, and zombie vs player.
 // Runs once per frame after everything has moved, so overlaps never reach the screen.
 static void ResolveOverlaps(void)
@@ -1053,7 +1037,7 @@ static void ResolveOverlaps(void)
 	// a few passes, because fixing one overlap can create another in a crowd
 	for (int pass = 0; pass < OVERLAP_PASSES; ++pass)
 	{
-		// ---- zombie vs zombie: each one moves half of the overlap ----
+		// zombie vs zombie: each one moves half of the overlap
 		for (int i = 0; i < MAX_ZOMBIES; ++i)
 		{
 			if (!s_zombies[i].active) continue;
@@ -1061,37 +1045,16 @@ static void ResolveOverlaps(void)
 			for (int j = i + 1; j < MAX_ZOMBIES; ++j)
 			{
 				if (!s_zombies[j].active) continue;
-
-				Zombie* a = &s_zombies[i];
-				Zombie* b = &s_zombies[j];
-
-				CP_Vector fromAToB = CP_Vector_Subtract(b->pos, a->pos);
-				float distance = CP_Vector_Length(fromAToB);
-				float touchingDistance = a->radius + b->radius;
-				if (distance >= touchingDistance) continue;           // not overlapping
-
-				// direction to push along (if both are exactly on top of each other, pick any)
-				CP_Vector direction = (distance > 0.0001f) ? CP_Vector_Normalize(fromAToB) : CP_Vector_Set(1.0f, 0.0f);
-				float halfOverlap = (touchingDistance - distance) * 0.5f;
-
-				a->pos = CP_Vector_Subtract(a->pos, CP_Vector_Scale(direction, halfOverlap));
-				b->pos = CP_Vector_Add(b->pos, CP_Vector_Scale(direction, halfOverlap));
+				PushApart(&s_zombies[i].pos, s_zombies[i].radius, &s_zombies[j].pos, s_zombies[j].radius, 0.5f);
 			}
 		}
 
-		// ---- zombie vs player: the player doesn't move, so the zombie moves the whole overlap ----
+		// zombie vs player: done last so no zombie is left inside the player.
+		// shareA = 1.0, so the player never moves and the zombie takes the whole push
 		for (int i = 0; i < MAX_ZOMBIES; ++i)
 		{
-			Zombie* z = &s_zombies[i];
-			if (!z->active) continue;
-
-			CP_Vector fromPlayerToZombie = CP_Vector_Subtract(z->pos, player.position);
-			float distance = CP_Vector_Length(fromPlayerToZombie);
-			float touchingDistance = PLAYER_RADIUS + z->radius;
-			if (distance >= touchingDistance) continue;               // not overlapping
-
-			CP_Vector direction = (distance > 0.0001f) ? CP_Vector_Normalize(fromPlayerToZombie) : CP_Vector_Set(1.0f, 0.0f);
-			z->pos = CP_Vector_Add(player.position, CP_Vector_Scale(direction, touchingDistance));
+			if (!s_zombies[i].active) continue;
+			PushApart(&s_zombies[i].pos, s_zombies[i].radius, &player.position, PLAYER_RADIUS, 1.0f);
 		}
 	}
 }
