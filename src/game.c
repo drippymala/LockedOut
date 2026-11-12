@@ -22,13 +22,19 @@
 #define GUN_BARREL_LENGTH    14.0f
 #define GUN_BARREL_THICKNESS 9.0f
 #define GRID_CELL_SIZE       100.0f
-#define MAX_DELTA_TIME       0.033f // 30 fps cap: a 900 px/s bullet moves at most ~30 px/frame, less than the smallest hitbox (34 px)
+#define MAX_DELTA_TIME       0.025f // 40 fps cap: bullet (900 px/s) + fastest runner (285 px/s) close at most ~30 px/frame, less than the smallest hitbox (34 px)
 #define MAX_ZOMBIES          128
 #define MAX_BULLETS       512 // max amt of bullets
 
 // ---- health cost per shot (every bullet costs the player's own blood) ----
 #define PISTOL_COST                2.0f    // flat, cheap
 #define PISTOL_KNOCKBACK           4.0f    // px a zombie is shoved back when hit
+#define PISTOL_FIRE_DELAY          0.25f   // seconds between shots
+#define PISTOL_RGB                 255, 230, 120   // pistol colour (barrel, crosshair, bullets): use as Col(PISTOL_RGB, alpha)
+#define BULLET_SPEED               900.0f  // px per second
+#define BULLET_RADIUS              5.0f
+#define BULLET_DAMAGE              20.0f
+#define BULLET_LIFE                1.20f   // seconds before the bullet disappears
 #define GHOST_DRAIN_RATE           70.0f   // how fast the pale "ghost" bar catches up (HP per second)
 
 // ---- pickups dropped by zombies ----
@@ -64,26 +70,6 @@ typedef enum {
 	PICK_BLOODLUST, // Special buff item
 	PICK_WEAPON     // Unlocks a new gun type
 } PickupType;
-
-//weapons
-typedef struct
-{
-	const char* name;
-	const char* drain;      // text describing how it drains health
-	float fireDelay;        // seconds between shots
-	float speed;            // bullet speed (px/s)
-	float radius;
-	float damage;
-	float life;             // seconds before the bullet disappears
-	int   r, g, b;
-} WeaponDef;
-
-
-static const WeaponDef s_weapons[W_COUNT] =
-{
-	//   name             drain description                          delay    speed    rad    dmg    life   colour (R, G, B)
-	{ "PISTOL",       "flat cost per shot",                      0.25f,   900.0f,  5.0f,  20.0f, 1.20f,  255, 230, 120 }
-};
 
 typedef struct
 {
@@ -236,7 +222,7 @@ static void UpdatePlayerMovementAndAim(float deltaTime)
 		{
 			player.hp -= cost;                   // every shot costs health
 			FireWeapon();                        // spawns the bullet(s) at the gun tip, using the gun's stats
-			s_fireTimer = s_weapons[player.weapon].fireDelay; // reset fire cooldown
+			s_fireTimer = PISTOL_FIRE_DELAY;     // reset fire cooldown
 			player.combatTimer = 0.0f;          // shooting resets out-of-combat timer
 		}
 
@@ -288,9 +274,7 @@ static void DrawPlayerSprite(void)
 {
 	int alpha = 255;
 
-	// the gun barrel takes the colour of the selected weapon
-	const WeaponDef* weapon = &s_weapons[player.weapon];
-	CP_Color gunColor       = Col(weapon->r, weapon->g, weapon->b, alpha);
+	CP_Color gunColor       = Col(PISTOL_RGB, alpha);
 	CP_Color bodyColor      = Col(60, 130, 220, alpha);
 	CP_Color highlightColor = Col(120, 185, 255, alpha);
 
@@ -308,8 +292,7 @@ static void DrawMouseCrosshair(void)
 {
 	float mouseX = CP_Input_GetMouseX();
 	float mouseY = CP_Input_GetMouseY();
-	const WeaponDef* weapon = &s_weapons[player.weapon];
-	CP_Color color = Col(weapon->r, weapon->g, weapon->b, 230);
+	CP_Color color = Col(PISTOL_RGB, 230);
 
 	float in  = CROSSHAIR_TICK_START;   // each tick starts this far from the centre...
 	float out = CROSSHAIR_TICK_END;     // ...and ends this far
@@ -434,7 +417,7 @@ static void DrawHud(void)
 	}
 
 	// Render the active weapon name, its cost description, and the exact HP cost per shot at the bottom center of the screen
-	snprintf(buf, sizeof(buf), "%s: %s  -  costs %.1f HP now", s_weapons[player.weapon].name, s_weapons[player.weapon].drain, GetShotCost(player.weapon));
+	snprintf(buf, sizeof(buf), "PISTOL: flat cost per shot  -  costs %.1f HP now", GetShotCost(player.weapon));
 	G_Text(buf, screenW * 0.5f, screenH - 22.0f, 22.0f, Col(230, 230, 230, 255), AL_CENTER);
 }
 
@@ -451,10 +434,8 @@ static Bullet M_bullets[MAX_BULLETS];
 
 static void SpawnBullet(WeaponType type, CP_Vector pos, CP_Vector direction, float speedMul, float lifeMul)
 {
-	//check which weapons 
-	const WeaponDef* def = &s_weapons[type];
-	//speed of bullet is weapon speed * speed multiplier (for powerups)
-	float spd = def->speed * speedMul;
+	//speed of bullet is bullet speed * speed multiplier (for powerups)
+	float spd = BULLET_SPEED * speedMul;
 
 	for (int i = 0; i < MAX_BULLETS; ++i) {
 		// If this slot is already active (flying on screen), skip it
@@ -465,9 +446,9 @@ static void SpawnBullet(WeaponType type, CP_Vector pos, CP_Vector direction, flo
 			.type = type,
 			.pos = pos,
 			.vel = CP_Vector_Scale(direction, spd),
-			.life = def->life * lifeMul,
-			.damage = def->damage,
-			.radius = def->radius
+			.life = BULLET_LIFE * lifeMul,
+			.damage = BULLET_DAMAGE,
+			.radius = BULLET_RADIUS
 		};
 		return;
 	}
@@ -489,9 +470,7 @@ static void DrawBullets(void)
 	{
 		const Bullet* b = &M_bullets[i];
 		if (!b->active) continue;
-		//color of buller based on weapon type
-		const WeaponDef* def = &s_weapons[b->type];
-		G_Circle(b->pos.x, b->pos.y, b->radius, Col(def->r, def->g, def->b, 255));
+		G_Circle(b->pos.x, b->pos.y, b->radius, Col(PISTOL_RGB, 255));
 	}
 }
 
