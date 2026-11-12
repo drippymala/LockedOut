@@ -82,8 +82,6 @@ static Pickup   s_pickups[MAX_PICKUPS]; // Hold all pickup slots
 static FloatText s_texts[MAX_TEXTS];
 static int      s_textNext = 0;   // next slot to use for a floating text
 static bool     s_paused = false;   // true while the pause menu is showing (syahmi)
-static void     SpawnBullet(WeaponType type, CP_Vector pos, CP_Vector direction, float speedMul, float lifeMul);
-static void     FireWeapon(void);
 static float    s_fireTimer = 0.0f;
 static int      s_wave = 0;              // Current wave number
 static int      s_toSpawn = 0;           // How many zombies left to spawn this wave
@@ -100,6 +98,38 @@ static float GetShotCost(WeaponType w)
 	case W_PISTOL: return PISTOL_COST;
 	default:       return 1.0f;
 	}
+}
+
+static void SpawnBullet(WeaponType type, CP_Vector pos, CP_Vector direction, float speedMul, float lifeMul)
+{
+	//speed of bullet is bullet speed * speed multiplier (for powerups)
+	float spd = BULLET_SPEED * speedMul;
+
+	for (int i = 0; i < MAX_BULLETS; ++i) {
+		// If this slot is already active (flying on screen), skip it
+		if (M_bullets[i].active) continue;
+
+		M_bullets[i] = (Bullet){
+			.active = true,
+			.type = type,
+			.pos = pos,
+			.vel = CP_Vector_Scale(direction, spd),
+			.life = BULLET_LIFE * lifeMul,
+			.damage = BULLET_DAMAGE,
+			.radius = BULLET_RADIUS
+		};
+		return;
+	}
+}
+
+// Fires one bullet from the gun tip, straight toward the mouse.
+static void FireWeapon(void)
+{
+	// Bullet emerges from the gun tip
+	float barrelReach = PLAYER_RADIUS + GUN_BARREL_LENGTH;
+	CP_Vector gunTipPos = CP_Vector_Add(player.position, CP_Vector_Scale(player.aimDirection, barrelReach));
+
+	SpawnBullet(player.weapon, gunTipPos, player.aimDirection, 1.0f, 1.0f);
 }
 
 static void UpdatePlayerMovementAndAim(float deltaTime)
@@ -303,37 +333,6 @@ static void DrawPauseOverlay(void)
 //BULLETS
 Bullet M_bullets[MAX_BULLETS];   // not static: shared through game.h
 
-static void SpawnBullet(WeaponType type, CP_Vector pos, CP_Vector direction, float speedMul, float lifeMul)
-{
-	//speed of bullet is bullet speed * speed multiplier (for powerups)
-	float spd = BULLET_SPEED * speedMul;
-
-	for (int i = 0; i < MAX_BULLETS; ++i) {
-		// If this slot is already active (flying on screen), skip it
-		if (M_bullets[i].active) continue;
-
-		M_bullets[i] = (Bullet){
-			.active = true,
-			.type = type,
-			.pos = pos,
-			.vel = CP_Vector_Scale(direction, spd),
-			.life = BULLET_LIFE * lifeMul,
-			.damage = BULLET_DAMAGE,
-			.radius = BULLET_RADIUS
-		};
-		return;
-	}
-}
-
-// Fires one bullet from the gun tip, straight toward the mouse.
-static void FireWeapon(void)
-{
-	// Bullet emerges from the gun tip
-	float barrelReach = PLAYER_RADIUS + GUN_BARREL_LENGTH;
-	CP_Vector gunTipPos = CP_Vector_Add(player.position, CP_Vector_Scale(player.aimDirection, barrelReach));
-
-	SpawnBullet(player.weapon, gunTipPos, player.aimDirection, 1.0f, 1.0f);
-}
 
 static void DrawBullets(void)
 {
