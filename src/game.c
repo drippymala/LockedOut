@@ -151,6 +151,9 @@ static float GetShotCost(WeaponType w)
 	}
 }
 
+<<<<<<< Updated upstream
+=======
+>>>>>>> Stashed changes
 static void UpdatePlayerMovementAndAim(float deltaTime)
 {
 	CP_Vector inputDirection = CP_Vector_Set(0.0f, 0.0f);
