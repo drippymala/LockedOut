@@ -68,6 +68,23 @@ CP_Vector GetNormalizedDirection(CP_Vector direction)
 	return CP_Vector_Normalize(direction);
 }
 
+// Pushes circle A out of circle B so they are exactly touching.
+// shareA = how much of the push A takes: 0.5 = both move half, 1.0 = only A moves.
+// Used by zombie.c (zombie vs zombie) and player.c (zombie vs player).
+void PushApart(CP_Vector* a, float radiusA, CP_Vector* b, float radiusB, float shareA)
+{
+	CP_Vector fromBToA = CP_Vector_Subtract(*a, *b);
+	float distance = CP_Vector_Length(fromBToA);
+	float overlap = (radiusA + radiusB) - distance;
+	if (overlap <= 0.0f) return;                               // not touching
+
+	// direction to push along (if both are exactly on top of each other, pick any)
+	CP_Vector direction = (distance > 0.0001f) ? CP_Vector_Scale(fromBToA, 1.0f / distance) : CP_Vector_Set(1.0f, 0.0f);
+
+	*a = CP_Vector_Add(*a, CP_Vector_Scale(direction, overlap * shareA));
+	*b = CP_Vector_Subtract(*b, CP_Vector_Scale(direction, overlap * (1.0f - shareA)));
+}
+
 void DrawFilledCircle(float centerX, float centerY, float radius, CP_Color color)
 {
 	CP_Settings_EllipseMode(CP_POSITION_CENTER);

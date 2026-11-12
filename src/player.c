@@ -24,7 +24,6 @@
 #define CROSSHAIR_THICKNESS        2.0f
 #define PISTOL_KNOCKBACK           4.0f    // px a zombie is shoved back when hit
 #define ZOMBIE_HIT_FLASH_TIME      0.08f   // white flash when a bullet hits a zombie
-#define OVERLAP_PASSES             4       // how many times per frame overlaps are pushed apart
 
 /* =========================================================
    WASD Movement
@@ -151,47 +150,13 @@ bool ZombieTouchingPlayer(const Zombie* z)
 	return dist <= hitDist;
 }
 
-// Pushes circle A out of circle B so they are exactly touching.
-// shareA = how much of the push A takes: 0.5 = both move half, 1.0 = only A moves.
-static void PushApart(CP_Vector* a, float radiusA, CP_Vector* b, float radiusB, float shareA)
+// Zombie vs player: pushes any zombie that overlaps the player back out to the player's edge.
+// shareA = 1.0, so the player never moves and the zombie takes the whole push (the "shove").
+void PushZombiesOutOfPlayer(void)
 {
-	CP_Vector fromBToA = CP_Vector_Subtract(*a, *b);
-	float distance = CP_Vector_Length(fromBToA);
-	float overlap = (radiusA + radiusB) - distance;
-	if (overlap <= 0.0f) return;                               // not touching
-
-	// direction to push along (if both are exactly on top of each other, pick any)
-	CP_Vector direction = (distance > 0.0001f) ? CP_Vector_Scale(fromBToA, 1.0f / distance) : CP_Vector_Set(1.0f, 0.0f);
-
-	*a = CP_Vector_Add(*a, CP_Vector_Scale(direction, overlap * shareA));
-	*b = CP_Vector_Subtract(*b, CP_Vector_Scale(direction, overlap * (1.0f - shareA)));
-}
-
-// Pushes circles apart until nothing overlaps: zombie vs zombie, and zombie vs player.
-// Runs once per frame after everything has moved, so overlaps never reach the screen.
-void ResolveOverlaps(void)
-{
-	// a few passes, because fixing one overlap can create another in a crowd
-	for (int pass = 0; pass < OVERLAP_PASSES; ++pass)
+	for (int i = 0; i < MAX_ZOMBIES; ++i)
 	{
-		// zombie vs zombie: each one moves half of the overlap
-		for (int i = 0; i < MAX_ZOMBIES; ++i)
-		{
-			if (!s_zombies[i].active) continue;
-
-			for (int j = i + 1; j < MAX_ZOMBIES; ++j)
-			{
-				if (!s_zombies[j].active) continue;
-				PushApart(&s_zombies[i].pos, s_zombies[i].radius, &s_zombies[j].pos, s_zombies[j].radius, 0.5f);
-			}
-		}
-
-		// zombie vs player: done last so no zombie is left inside the player.
-		// shareA = 1.0, so the player never moves and the zombie takes the whole push
-		for (int i = 0; i < MAX_ZOMBIES; ++i)
-		{
-			if (!s_zombies[i].active) continue;
-			PushApart(&s_zombies[i].pos, s_zombies[i].radius, &player.position, PLAYER_RADIUS, 1.0f);
-		}
+		if (!s_zombies[i].active) continue;
+		PushApart(&s_zombies[i].pos, s_zombies[i].radius, &player.position, PLAYER_RADIUS, 1.0f);
 	}
 }

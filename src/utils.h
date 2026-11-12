@@ -21,6 +21,7 @@ int AreCirclesIntersecting(float c1_x, float c1_y, float r1, float c2_x, float c
 /* Math / color */
 CP_Color  Col(int r, int g, int b, int a);
 CP_Vector GetNormalizedDirection(CP_Vector direction);
+void      PushApart(CP_Vector* a, float radiusA, CP_Vector* b, float radiusB, float shareA);   // separate two overlapping circles
 
 /* Drawing helpers */
 void DrawFilledCircle(float centerX, float centerY, float radius, CP_Color color);

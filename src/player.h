@@ -31,4 +31,4 @@ int BulletHitZombie(Bullet* b);
 
 /* Player Hitbox */
 bool ZombieTouchingPlayer(const Zombie* z);
-void ResolveOverlaps(void);
+void PushZombiesOutOfPlayer(void);   // zombie vs player push (one pass)

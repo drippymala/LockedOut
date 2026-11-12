@@ -237,3 +237,20 @@ void UpdateZombies(float deltaTime)
 		}
 	}
 }
+
+// Zombie vs zombie: pushes every overlapping pair apart so zombies don't stack on each other.
+// One pass; game.c runs it a few times per frame (together with the player push in player.c).
+void SeparateZombies(void)
+{
+	for (int i = 0; i < MAX_ZOMBIES; ++i)
+	{
+		if (!s_zombies[i].active) continue;
+
+		// j starts at i + 1 so each pair is checked once, and never a zombie against itself
+		for (int j = i + 1; j < MAX_ZOMBIES; ++j)
+		{
+			if (!s_zombies[j].active) continue;
+			PushApart(&s_zombies[i].pos, s_zombies[i].radius, &s_zombies[j].pos, s_zombies[j].radius, 0.5f);   // each moves half
+		}
+	}
+}

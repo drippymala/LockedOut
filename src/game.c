@@ -20,6 +20,7 @@
 #include <stdbool.h>
 
 #define GRID_CELL_SIZE       100.0f
+#define OVERLAP_PASSES       4      // how many times per frame overlaps are pushed apart
 #define MAX_DELTA_TIME       0.025f // 40 fps cap: bullet (900 px/s) + fastest runner (285 px/s) close at most ~30 px/frame, less than the smallest hitbox (34 px)
 
 // ---- health cost per shot (every bullet costs the player's own blood) ----
@@ -631,6 +632,17 @@ static void UpdateWave(float deltaTime)
 	}
 }
 
+// Pushes circles apart until nothing overlaps: zombie vs zombie, and zombie vs player.
+// Runs once per frame after everything has moved, so overlaps never reach the screen.
+static void ResolveOverlaps(void)
+{
+	// a few passes, because fixing one overlap can create another in a crowd
+	for (int pass = 0; pass < OVERLAP_PASSES; ++pass)
+	{
+		SeparateZombies();          // zombie.c: zombie vs zombie, each moves half
+		PushZombiesOutOfPlayer();   // player.c: zombie vs player, done last so no zombie is left inside the player
+	}
+}
 
 static void Render(void)
 {

@@ -37,3 +37,4 @@ int  CountAliveZombies(void);         // how many zombies are on screen right no
 void SpawnZombie(int wave);           // spawn one zombie at a screen edge, scaled to this wave
 void UpdateZombies(float deltaTime);  // chase the player and bite when touching
 void DrawZombies(void);
+void SeparateZombies(void);           // push overlapping zombies apart (one pass)
