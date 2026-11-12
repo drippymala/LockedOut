@@ -25,18 +25,10 @@
 #define MAX_DELTA_TIME       0.05f
 #define MAX_ZOMBIES          128
 #define MAX_BULLETS       512 // max amt of bullets
-#define MAX_PIERCE_TRACK   16 // to prevent hitting the same zombie multiple times with piercing bullets
 
 // ---- health cost per shot (every bullet costs the player's own blood) ----
 #define PISTOL_COST                2.0f    // flat, cheap
-#define TARGET_LOCK_COST           9.0f    // placeholder until the charge mechanic exists
-#define PARASITE_COST              4.0f    // paid up front...
-#define PARASITE_REFUND            5.0f    // ...and refunded per hit
-#define MINIGUN_COST_MIN           0.4f    // cost per bullet when you start firing
-#define MINIGUN_COST_MAX           1.6f    // ...and after MINIGUN_RAMP_TIME of holding
-#define MINIGUN_RAMP_TIME          3.0f
-#define HEALTH_LASER_COST_PERCENT  0.20f   // placeholder: % of CURRENT hp per shot
-#define HEALTH_LASER_COST_MIN      5.0f
+#define PISTOL_KNOCKBACK           4.0f    // px a zombie is shoved back when hit
 #define GHOST_DRAIN_RATE           70.0f   // how fast the pale "ghost" bar catches up (HP per second)
 
 // ---- player hitbox / zombie contact damage ----
@@ -51,7 +43,7 @@
 #define CROSSHAIR_THICKNESS        2.0f
 
 typedef enum { Z_WALKER, Z_RUNNER, Z_BRUTE } ZombieType;
-typedef enum { W_PISTOL, W_TARGET_LOCK, W_PARASITE, W_MINIGUN, W_HEALTH_LASER, W_COUNT } WeaponType;
+typedef enum { W_PISTOL, W_COUNT } WeaponType;
 
 //weapons
 typedef struct
@@ -63,20 +55,14 @@ typedef struct
 	float radius;
 	float damage;
 	float life;             // seconds before the bullet disappears
-	int   pellets;
 	float spreadDeg;        // total cone angle
-	int   pierce;           // extra zombies a bullet can go through
 	int   r, g, b;
 } WeaponDef;
 
 static const WeaponDef s_weapons[W_COUNT] =
 {
-	//   name             drain description                          delay    speed    rad    dmg    life   pel spread pierce   colour (R, G, B)
-	{ "PISTOL",       "flat cost per shot",                      0.25f,   900.0f,  5.0f,  20.0f, 1.20f,  1,  1.5f,   0,   255, 230, 120 },
-	{ "TARGET LOCK",  "health bar charges a homing shot",        0.60f,   850.0f,  6.0f,  35.0f, 1.50f,  1,  0.0f,   0,   255, 150,  60 },
-	{ "PARASITE",     "pay up front, refunded on hit",           0.40f,   750.0f,  6.0f,  12.0f, 1.20f,  1,  2.0f,   0,   110, 255, 140 },
-	{ "MINIGUN",      "cost increases while held",               0.085f, 1000.0f,  4.0f,   9.0f, 1.00f,  1,  5.0f,   0,   120, 200, 255 },
-	{ "HEALTH LASER", "health bar extends into a laser beam",    1.10f,  2400.0f,  4.0f, 120.0f, 0.80f,  1,  0.0f,  99,   220, 120, 255 }
+	//   name             drain description                          delay    speed    rad    dmg    life  spread   colour (R, G, B)
+	{ "PISTOL",       "flat cost per shot",                      0.25f,   900.0f,  5.0f,  20.0f, 1.20f,  1.5f,   255, 230, 120 }
 };
 
 typedef struct
@@ -85,9 +71,6 @@ typedef struct
 	WeaponType type;
 	CP_Vector pos, vel; //velocity of the bullet
 	float life, damage, radius;
-	int pierceLeft;
-	int hitIds[MAX_PIERCE_TRACK];
-	int hitCount;
 } Bullet;
 
 typedef struct
@@ -102,7 +85,6 @@ typedef struct
 	WeaponType weapon;//let player be able to use different weapons.
 	bool owned[W_COUNT];
 
-	float rampTime;     // minigun: how long the trigger has been held
 	float noFireFlash;  // red flash on the health bar when a shot is refused
 } Player;
 
@@ -128,7 +110,7 @@ static void     SpawnBullet(WeaponType type, CP_Vector pos, CP_Vector direction,
 static void     FireWeapon(void);
 static void     SpawnZombie(void);
 static float    s_fireTimer = 0.0f;
-static int      s_nextZombieId = 1;        // unique id per zombie so piercing bullets don't double-hit
+static int      s_nextZombieId = 1;        // unique id per zombie
 static float    s_zombieSpawnTimer = 0.0f; // Timer between spawns
 static int      s_wave = 0;              // Current wave number
 static int      s_toSpawn = 0;           // How many zombies left to spawn this wave
@@ -142,20 +124,8 @@ static float GetShotCost(WeaponType w)
 {
 	switch (w)
 	{
-	case W_PISTOL:      return PISTOL_COST;
-	case W_TARGET_LOCK: return TARGET_LOCK_COST;
-	case W_PARASITE:    return PARASITE_COST;
-	case W_MINIGUN:     // starts cheap, gets pricier the longer you hold
-	{
-		float t = CP_Math_ClampFloat(player.rampTime / MINIGUN_RAMP_TIME, 0.0f, 1.0f);
-		return MINIGUN_COST_MIN + (MINIGUN_COST_MAX - MINIGUN_COST_MIN) * t;
-	}
-	case W_HEALTH_LASER: // scales with how healthy you are
-	{
-		float cost = player.hp * HEALTH_LASER_COST_PERCENT;
-		return (cost > HEALTH_LASER_COST_MIN) ? cost : HEALTH_LASER_COST_MIN;
-	}
-	default: return 1.0f;
+	case W_PISTOL: return PISTOL_COST;
+	default:       return 1.0f;
 	}
 }
 
@@ -163,7 +133,7 @@ static float GetShotCost(WeaponType w)
 static void MovePlayer(float deltaTime)
 {
 	CP_Vector input = CP_Vector_Set(0.0f, 0.0f);
-	if (CP_Input_KeyDown(KEY_W)) input.y -= 1.0f;   // screen y grows downward
+	if (CP_Input_KeyDown(KEY_W)) input.y -= 1.0f;
 	if (CP_Input_KeyDown(KEY_S)) input.y += 1.0f;
 	if (CP_Input_KeyDown(KEY_A)) input.x -= 1.0f;
 	if (CP_Input_KeyDown(KEY_D)) input.x += 1.0f;
@@ -197,24 +167,9 @@ static void UpdatePlayerMovementAndAim(float deltaTime)
 
 	//for guns
 	if (CP_Input_KeyTriggered(KEY_1) && player.owned[W_PISTOL])       player.weapon = W_PISTOL;
-	if (CP_Input_KeyTriggered(KEY_2) && player.owned[W_TARGET_LOCK])  player.weapon = W_TARGET_LOCK;
-	if (CP_Input_KeyTriggered(KEY_3) && player.owned[W_PARASITE])     player.weapon = W_PARASITE;
-	if (CP_Input_KeyTriggered(KEY_4) && player.owned[W_MINIGUN])      player.weapon = W_MINIGUN;
-	if (CP_Input_KeyTriggered(KEY_5) && player.owned[W_HEALTH_LASER]) player.weapon = W_HEALTH_LASER;
 
 	//for shooting / left click
 	bool trigger = CP_Input_MouseDown(MOUSE_BUTTON_LEFT);
-
-	// Minigun ramp-up: the longer the trigger is held, the more each bullet costs
-	if (trigger && player.weapon == W_MINIGUN)
-	{
-		player.rampTime += deltaTime;
-	}
-	else
-	{
-		player.rampTime -= deltaTime * 1.5f;     // cools down faster than it heats up
-		if (player.rampTime < 0.0f) player.rampTime = 0.0f;
-	}
 
 	// Decrease fire rate cooldown
 	s_fireTimer -= deltaTime;
@@ -284,7 +239,7 @@ static void DrawMouseCrosshair(void)
 
 // Squared distance from point p to the line segment a-b.
 // Used for the bullet hitbox: we test the whole path the bullet travelled this frame,
-// not just where it ended up, so fast bullets (e.g. 2400 px/s Health Laser) can't skip through a zombie.
+// not just where it ended up, so a fast bullet (or a long frame) can't skip through a zombie.
 static float PointSegDistSq(CP_Vector p, CP_Vector a, CP_Vector b)
 {
 	CP_Vector ab = CP_Vector_Subtract(b, a);
@@ -299,22 +254,6 @@ static float PointSegDistSq(CP_Vector p, CP_Vector a, CP_Vector b)
 	float dx = p.x - closest.x;
 	float dy = p.y - closest.y;
 	return dx * dx + dy * dy;
-}
-
-//set true false for if bullet has hit a zombie.
-//let bullet pierce thru zombie once and only damage once until bullet leaves zombie.
-static bool BulletAlreadyHit(const Bullet* b, int zombieId)
-{
-	int n;
-	if (b->hitCount < MAX_PIERCE_TRACK) {
-		n = b->hitCount;
-	}
-	else {
-		n = MAX_PIERCE_TRACK;
-	}for (int i = 0; i < n; ++i) {
-		if (b->hitIds[i] == zombieId) return true; // Already damaged this zombie, skip!
-	}
-	return false;
 }
 
 static void DrawBackgroundGrid(void)
@@ -436,15 +375,14 @@ static void SpawnBullet(WeaponType type, CP_Vector pos, CP_Vector direction, flo
 			.vel = CP_Vector_Scale(direction, spd),
 			.life = def->life * lifeMul,
 			.damage = def->damage,
-			.radius = def->radius,
-			.pierceLeft = def->pierce
+			.radius = def->radius
 		};
 		return;
 	}
 }
 
-// Fires the currently selected weapon using its stats from s_weapons:
-// pellets = how many bullets per shot, spreadDeg = random cone the bullets fly in.
+// Fires one bullet from the gun tip, using the selected weapon's stats from s_weapons.
+// spreadDeg = random cone the bullet flies in.
 static void FireWeapon(void)
 {
 	const WeaponDef* def = &s_weapons[player.weapon];
@@ -453,19 +391,14 @@ static void FireWeapon(void)
 	float barrelReach = PLAYER_RADIUS + GUN_BARREL_LENGTH;
 	CP_Vector gunTipPos = CP_Vector_Add(player.position, CP_Vector_Scale(player.aimDirection, barrelReach));
 
+	// rotate the aim direction by a random angle inside the spread cone
 	float halfSpread = def->spreadDeg * 0.5f * DEG_TO_RAD;
-	for (int i = 0; i < def->pellets; ++i)
-	{
-		// rotate the aim direction by a random angle inside the spread cone
-		float spread = CP_Random_RangeFloat(-halfSpread, halfSpread);
-		CP_Vector direction = CP_Vector_Set(
-			player.aimDirection.x * cosf(spread) - player.aimDirection.y * sinf(spread),
-			player.aimDirection.x * sinf(spread) + player.aimDirection.y * cosf(spread));
-		// multi-pellet guns get slightly uneven speed/range so the spread looks natural
-		float speedMul = (def->pellets > 1) ? CP_Random_RangeFloat(0.85f, 1.10f) : 1.0f;
-		float lifeMul = (def->pellets > 1) ? CP_Random_RangeFloat(0.80f, 1.10f) : 1.0f;
-		SpawnBullet(player.weapon, gunTipPos, direction, speedMul, lifeMul);
-	}
+	float spread = CP_Random_RangeFloat(-halfSpread, halfSpread);
+	CP_Vector direction = CP_Vector_Set(
+		player.aimDirection.x * cosf(spread) - player.aimDirection.y * sinf(spread),
+		player.aimDirection.x * sinf(spread) + player.aimDirection.y * cosf(spread));
+
+	SpawnBullet(player.weapon, gunTipPos, direction, 1.0f, 1.0f);
 }
 
 static void DrawBullets(void)
@@ -513,22 +446,12 @@ static void UpdateBullets(float dt)
 			float hitDist = b->radius + zombie->radius;
 			if (PointSegDistSq(zombie->pos, prevPos, b->pos) > hitDist * hitDist) continue;
 
-			// piercing bullets only damage each zombie once
-			if (BulletAlreadyHit(b, zombie->id)) continue;
-
 			// Hurt zombie & trigger hit flash
 			zombie->hp -= b->damage;
 			zombie->hitFlash = ZOMBIE_HIT_FLASH_TIME;
 
-			// Knockback along the bullet's direction (heavier weapons shove harder)
-			float knock = (b->type == W_TARGET_LOCK) ? 9.0f : (b->type == W_HEALTH_LASER ? 14.0f : 4.0f);
-			zombie->pos = CP_Vector_Add(zombie->pos, CP_Vector_Scale(GetNormalizedDirection(b->vel), knock));
-
-			// Parasite weapon heals player
-			if (b->type == W_PARASITE)
-			{
-				player.hp = CP_Math_ClampFloat(player.hp + PARASITE_REFUND, 0.0f, player.maxHp);
-			}
+			// Knockback along the bullet's direction
+			zombie->pos = CP_Vector_Add(zombie->pos, CP_Vector_Scale(GetNormalizedDirection(b->vel), PISTOL_KNOCKBACK));
 
 			// Check if zombie died
 			if (zombie->hp <= 0.0f)
@@ -536,17 +459,9 @@ static void UpdateBullets(float dt)
 				zombie->active = false;
 			}
 
-			// No pierce left -> bullet disappears on hit
-			if (b->pierceLeft <= 0)
-			{
-				b->active = false;
-				break; // Stop checking other zombies for this bullet
-			}
-
-			// Piercing bullet (e.g. Health Laser): keeps flying, remember who it already hit
-			b->pierceLeft--;
-			b->hitIds[b->hitCount % MAX_PIERCE_TRACK] = zombie->id;
-			b->hitCount++;
+			// Bullet disappears on hit
+			b->active = false;
+			break; // Stop checking other zombies for this bullet
 		}
 	}
 }
@@ -1076,7 +991,6 @@ void Game_Init(void)
 	player.hp = 100.0f;       // Player starts with 100 HP
 	player.maxHp = 100.0f;    // Maximum player health is 100 HP
 	player.ghostHp = 100.0f;  // Ghost health starts at maximum HP
-	player.rampTime = 0.0f;
 	player.noFireFlash = 0.0f;
 	s_fireTimer = 0.3f;
 
