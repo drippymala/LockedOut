@@ -10,7 +10,8 @@
 //---------------------------------------------------------
 
 #pragma once
-#include "game.h"   // Player, Zombie, Bullet types and the shared globals
+#include "game.h"     // Player and Bullet types, player / bullet / window globals
+#include "zombie.h"   // Zombie type and s_zombies
 
 /* WASD Movement */
 void MovePlayer(float deltaTime);

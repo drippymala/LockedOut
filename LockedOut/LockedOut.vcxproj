@@ -24,12 +24,14 @@
     <ClCompile Include="..\src\mainmenu.c" />
     <ClCompile Include="..\src\player.c" />
     <ClCompile Include="..\src\utils.c" />
+    <ClCompile Include="..\src\zombie.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\src\game.h" />
     <ClInclude Include="..\src\mainmenu.h" />
     <ClInclude Include="..\src\player.h" />
     <ClInclude Include="..\src\utils.h" />
+    <ClInclude Include="..\src\zombie.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>

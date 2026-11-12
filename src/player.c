@@ -12,6 +12,7 @@
 #include "cprocessing.h"
 #include "utils.h"
 #include "game.h"
+#include "zombie.h"
 #include "player.h"
 
 #define PLAYER_SPEED               290.0f  // px per second

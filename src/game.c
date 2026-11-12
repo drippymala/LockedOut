@@ -14,6 +14,7 @@
 #include "utils.h"       // Fixes C4013 'IsAreaClicked' undefined
 #include "game.h"        // Matches the Game_Init / Game_Update / Game_Exit declarations
 #include "mainmenu.h"
+#include "zombie.h"      // zombie spawning, chasing, drawing (zombie.c)
 #include "player.h"      // Sean's player code (movement, aim, sprite, hitboxes)
 #include <math.h>
 #include <stdbool.h>
@@ -43,9 +44,6 @@
 #define BLOODLUST_KILL_HEAL   5.0f     //            ...HP healed per kill while it lasts
 #define TWO_PI_F              6.2831853f
 
-// ---- zombie contact damage ----
-#define ZOMBIE_ATTACK_COOLDOWN     0.80f   // seconds between bites from the same zombie
-
 typedef enum {
 	PICK_BLOOD,     // Small heal, flies toward the player
 	PICK_MEDKIT,    // Large instant heal
@@ -54,7 +52,7 @@ typedef enum {
 	PICK_WEAPON     // Unlocks a new gun type
 } PickupType;
 
-// Bullet, Player and Zombie structs are in game.h so player.c can use them too
+// Bullet and Player structs are in game.h, Zombie is in zombie.h
 
 typedef struct
 {
@@ -75,24 +73,17 @@ typedef struct
 } FloatText;
 
 // not static: shared with player.c through the "extern" lines in game.h
-Zombie          s_zombies[MAX_ZOMBIES];
 float           windowWidth = 1600.0f;
 float           windowHeight = 900.0f;
 Player          player;
 
-static Pickup   s_pickups[MAX_PICKUPS];
+static Pickup   s_pickups[MAX_PICKUPS]; // Hold all pickup slots
 static FloatText s_texts[MAX_TEXTS];
 static int      s_textNext = 0;   // next slot to use for a floating text
-static Pickup	s_pickups[MAX_PICKUPS]; // Hold all pickup slots
-static CP_Color s_zombieColor;
 static bool     s_paused = false;   // true while the pause menu is showing (syahmi)
 static void     SpawnBullet(WeaponType type, CP_Vector pos, CP_Vector direction, float speedMul, float lifeMul);
 static void     FireWeapon(void);
-static void     SpawnZombie(void);
-static int      CountAliveZombies(void);
 static float    s_fireTimer = 0.0f;
-static int      s_nextZombieId = 1;        // unique id per zombie
-static float    s_zombieSpawnTimer = 0.0f; // Timer between spawns
 static int      s_wave = 0;              // Current wave number
 static int      s_toSpawn = 0;           // How many zombies left to spawn this wave
 static float    s_spawnTimer = 0.0f;     // Delay between each spawn
@@ -592,19 +583,7 @@ static void UpdateBullets(float dt)
 }
 //weapon HUD
 
-//ZOMBIES
-
-//for zombie wave spawning
-// Counts how many zombies are currently alive on screen
-static int CountAliveZombies(void)
-{
-	int count = 0;
-	for (int i = 0; i < MAX_ZOMBIES; ++i)
-	{
-		if (s_zombies[i].active) count++;
-	}
-	return count;
-}
+//WAVES (zombie spawning / drawing / chasing is in zombie.c)
 
 // Begins the next wave with more zombies
 static void StartWave(void)
@@ -626,7 +605,7 @@ static void UpdateWave(float deltaTime)
 		s_spawnTimer -= deltaTime;
 		if (s_spawnTimer <= 0.0f)
 		{
-			SpawnZombie();
+			SpawnZombie(s_wave);   // zombie.c, scaled to the current wave
 			s_toSpawn--;
 			s_spawnTimer = 1.0f; // 1 second between each zombie spawn
 		}
@@ -651,205 +630,6 @@ static void UpdateWave(float deltaTime)
 		}
 	}
 }
-
-//spawn zombies
-static void SpawnZombie(void)
-{
-	//find inactive slot in zombie arr to spawn new zombie
-	int slot = -1;
-	for (int i = 0; i < MAX_ZOMBIES; ++i)
-	{
-		if (!s_zombies[i].active)
-		{
-			slot = i;
-			break;
-		}
-	}
-	if (slot < 0) return; // All slots full
-
-	// Wave difficulty scaling
-	//chance for runner starts at wave 3,with a max of 35% chance at wave 6 (increase by 7% per wave)
-	float runnerChance = (s_wave >= 3) ? (0.07f * (float)(s_wave - 2)) : 0.0f;
-	if (runnerChance > 0.35f) runnerChance = 0.35f;
-
-	//chance for brute starts at wave 5, with a max of 18% chance at wave 9 (increase by 4% per wave)
-	float bruteChance = (s_wave >= 5) ? (0.04f * (float)(s_wave - 4)) : 0.0f;
-	if (bruteChance > 0.18f) bruteChance = 0.18f;
-
-	float roll = CP_Random_RangeFloat(0.0f, 1.0f);
-
-	//health scales by 10% per wave, speed scales by 3% per wave (max 50% faster), damage scales by 5% per wave
-	float hpMul = 1.0f + 0.10f * (float)(s_wave - 1);
-	float spdMul = 1.0f + 0.03f * (float)(s_wave - 1);
-	//caps speed at 1.5 times of based speed
-	if (spdMul > 1.5f) spdMul = 1.5f;
-
-	float dmgMul = 1.0f + 0.05f * (float)(s_wave - 1);
-
-	Zombie* z = &s_zombies[slot];
-	z->active = true;
-	z->id = s_nextZombieId++;
-	z->hitFlash = 0.0f;
-
-	// Pick zombie archetype
-	if (roll < bruteChance)
-	{
-		z->type = Z_BRUTE;
-		z->maxHp = 220.0f * hpMul;
-		z->speed = 62.0f * spdMul;
-		z->radius = 26.0f;
-		z->damage = 22.0f * dmgMul;
-	}
-	else if (roll < bruteChance + runnerChance)
-	{
-		z->type = Z_RUNNER;
-		z->maxHp = 22.0f * hpMul;
-		z->speed = 190.0f * spdMul;
-		z->radius = 12.0f;
-		z->damage = 6.0f * dmgMul;
-	}
-	else
-	{
-		z->type = Z_WALKER;
-		z->maxHp = 40.0f * hpMul;
-		z->speed = 95.0f * spdMul;
-		z->radius = 15.0f;
-		z->damage = 10.0f * dmgMul;
-	}
-
-	z->hp = z->maxHp;
-	z->attackTimer = 0.5f;
-
-	// Spawn just outside a random edge (0 = top, 1 = right, 2 = bottom, 3 = left)
-	const float margin = 40.0f;
-	int edge = (int)CP_Random_RangeFloat(0.0f, 4.0f);
-	//where to spawn zombie based on edge
-	switch (edge)
-	{
-	case 0:  // Top
-		z->pos = CP_Vector_Set(CP_Random_RangeFloat(0.0f, windowWidth), -margin);
-		break;
-	case 1:  // Right
-		z->pos = CP_Vector_Set(windowWidth + margin, CP_Random_RangeFloat(0.0f, windowHeight));
-		break;
-	case 2:  // Bottom
-		z->pos = CP_Vector_Set(CP_Random_RangeFloat(0.0f, windowWidth), windowHeight + margin);
-		break;
-	default: // Left
-		z->pos = CP_Vector_Set(-margin, CP_Random_RangeFloat(0.0f, windowHeight));
-		break;
-	}
-}
-
-static void DrawZombies(void)
-{
-	//check for active zombies and draw them on screen 
-	for (int i = 0; i < MAX_ZOMBIES; ++i)
-	{
-		const Zombie* z = &s_zombies[i];
-		if (!z->active) continue;
-
-		float x = z->pos.x;
-		float y = z->pos.y;
-		float r = z->radius;
-		//set skin color
-		CP_Color skinColor;
-		float armW, armL, armOffsetY;
-
-		//check zombie type
-		if (z->type == Z_WALKER)
-		{
-			//check if hit if hit chang ecolor to white for a flash effect
-			skinColor = (z->hitFlash > 0.0f) ? Col(255, 255, 255, 255) : Col(95, 155, 85, 255);
-			armW = 8.0f;          // Arm width (thickness)
-			armL = r * 1.5f;      // Arm length
-			armOffsetY = 0.0f;    // Vertical offset
-		}
-		else if (z->type == Z_RUNNER)
-		{//if zombie is hit flash white else stay same color / yellowish color for runener zombie 
-			skinColor = (z->hitFlash > 0.0f) ? Col(255, 255, 255, 255) : Col(220, 180, 50, 255);
-			armW = 6.0f;
-			armL = r * 1.8f;
-			armOffsetY = -r * 0.2f;
-		}
-		else
-		{
-			skinColor = (z->hitFlash > 0.0f) ? Col(255, 255, 255, 255) : Col(55, 95, 55, 255);
-			armW = 16.0f;
-			armL = r * 1.4f;
-			armOffsetY = r * 0.2f;
-		}
-
-		//draw zombie arms
-		G_Rect(x - r - armW * 0.5f, y - armL + armOffsetY, armW, armL, skinColor);
-		G_Rect(x + r - armW * 0.5f, y - armL + armOffsetY, armW, armL, skinColor);
-
-		//draw zombie arm outlines
-		CP_Settings_RectMode(CP_POSITION_CORNER);
-		CP_Settings_NoFill();
-		CP_Settings_Stroke(Col(20, 35, 20, 255));
-		CP_Settings_StrokeWeight(1.5f);
-		//draw outlines for zombie arms 
-		CP_Graphics_DrawRect(x - r - armW * 0.5f, y - armL + armOffsetY, armW, armL);
-		CP_Graphics_DrawRect(x + r - armW * 0.5f, y - armL + armOffsetY, armW, armL);
-		CP_Settings_NoStroke();
-		//zombie body
-		G_Circle(x, y, r, skinColor);
-		G_Ring(x, y, r, 2.0f, Col(20, 35, 20, 255));
-
-		//draw zombie health bar if not full
-		if (z->hp < z->maxHp)
-		{
-			//draw health bar above zombie
-			float barW = r * 2.4f;
-			//get ratio of current health to max health to draw how much health left
-			float hpRatio = z->hp / z->maxHp;
-			//draw health bar above zombie
-			float barY = y - r - armL - 10.0f;
-
-			G_Rect(x - barW * 0.5f, barY, barW, 5.0f, Col(0, 0, 0, 180));
-			G_Rect(x - barW * 0.5f, barY, barW * hpRatio, 5.0f, Col(220, 50, 50, 255));
-		}
-	}
-}
-
-static void UpdateZombies(float deltaTime)
-{
-	for (int i = 0; i < MAX_ZOMBIES; ++i)
-	{
-		Zombie* z = &s_zombies[i];
-		if (!z->active) continue;
-
-		// Reduce hit flash timer
-		if (z->hitFlash > 0.0f)
-		{
-			z->hitFlash -= deltaTime;
-		}
-
-		// Steer toward player
-		//make zombie chase player after getting diretion. 
-		CP_Vector toPlayer = CP_Vector_Subtract(player.position, z->pos);
-		//the direction zombie should move in to the player
-		CP_Vector moveDir = GetNormalizedDirection(toPlayer);
-
-		z->pos = CP_Vector_Add(z->pos, CP_Vector_Scale(moveDir, z->speed * deltaTime));
-
-		// Damage player if touching
-		if (ZombieTouchingPlayer(z))   // player hitbox (player.c)
-		{
-			z->attackTimer -= deltaTime;
-			if (z->attackTimer <= 0.0f)
-			{
-				player.hp -= z->damage;
-				z->attackTimer = 0.8f; // Attack interval
-
-				player.combatTimer = 0.0f;      // taking damage resets out-of-combat timer
-			}
-		}
-	}
-}
-
-
 
 
 static void Render(void)
@@ -1098,12 +878,7 @@ void Game_Init(void)
 		M_bullets[i].active = false;
 	}
 
-	s_zombieColor = Col(95, 155, 85, 255);
-
-	for (int i = 0; i < MAX_ZOMBIES; ++i)
-	{
-		s_zombies[i].active = false;
-	}
+	ResetZombies();   // zombie.c: clear every zombie slot and restart the id counter
 
 	//clear pickups and floating texts
 	for (int i = 0; i < MAX_PICKUPS; ++i)
@@ -1116,7 +891,6 @@ void Game_Init(void)
 	}
 	s_textNext = 0;
 
-	s_nextZombieId = 1;
 	s_wave = 0;
 	StartWave();
 }

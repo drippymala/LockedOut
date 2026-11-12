@@ -5,7 +5,7 @@
 // brief:	This header file contains the function
 //			declarations for the game state, including initialization,
 //			updating, and exiting the game, plus the types and
-//			globals that game.c and player.c both use.
+//			globals that game.c, player.c and zombie.c use.
 //
 // Copyright © 2026 DigiPen, All rights reserved.
 //---------------------------------------------------------
@@ -15,14 +15,13 @@
 #include "cprocessing.h"   // needed for CP_Vector
 
 /* ---------- Shared sizes and values (used by game.c and player.c) ---------- */
-#define MAX_ZOMBIES          128
+// (zombie types, MAX_ZOMBIES and s_zombies live in zombie.h)
 #define MAX_BULLETS          512             // max amt of bullets
 #define PLAYER_RADIUS        18.0f
 #define GUN_BARREL_LENGTH    14.0f
 #define PISTOL_RGB           255, 230, 120   // pistol colour (barrel, crosshair, bullets): use as Col(PISTOL_RGB, alpha)
 
 /* ---------- Shared types ---------- */
-typedef enum { Z_WALKER, Z_RUNNER, Z_BRUTE } ZombieType;
 typedef enum { W_PISTOL, W_COUNT } WeaponType;
 
 typedef struct
@@ -53,23 +52,10 @@ typedef struct
 	float combatTimer;  // tracks time since last shot or damage taken
 } Player;
 
-typedef struct
-{
-	bool active;
-	int id;
-	ZombieType type;
-	CP_Vector pos;
-	float radius;
-	float hp, maxHp;
-	float speed, damage;
-	float attackTimer, swayPhase, swayAmp, hitFlash;
-} Zombie;
-
 /* ---------- Shared globals (defined in game.c) ---------- */
 // "extern" = this variable exists, but its memory is created in game.c.
 // Any file that includes game.h can then read and change the same variable.
 extern Player player;
-extern Zombie s_zombies[MAX_ZOMBIES];
 extern Bullet M_bullets[MAX_BULLETS];
 extern float  windowWidth;
 extern float  windowHeight;
