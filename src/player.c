@@ -52,9 +52,9 @@ void MovePlayer(float deltaTime)
 void AimPlayerAtMouse(void)
 {
 	CP_Vector mouse = CP_Vector_Set(CP_Input_GetMouseX(), CP_Input_GetMouseY());
-	CP_Vector toMouse = CP_Vector_Subtract(mouse, player.position);
+	CP_Vector toMouse = CP_Vector_Subtract(mouse, player.position); // Vector from player to mouse (mouse - player)
 
-	// if the mouse is exactly on the player there is no direction, so keep the last aim
+	// if the mouse is exactly on the player there is no direction, so keep the last aim	
 	if (CP_Vector_Length(toMouse) > 0.0001f)
 	{
 		player.aimDirection = CP_Vector_Normalize(toMouse);
@@ -112,7 +112,6 @@ void DrawPlayerSprite(void)
    Bullet Hitbox
    ========================================================= */
 // Checks one bullet against every zombie: do the bullet circle and a zombie circle overlap?
-// (Safe because MAX_DELTA_TIME keeps a bullet's step per frame smaller than the smallest hitbox.)
 // On a hit: damages the zombie, flashes it, knocks it back, removes the bullet,
 // and returns that zombie's index so game.c can handle the kill. Returns -1 if nothing was hit.
 int BulletHitZombie(Bullet* b)
