@@ -933,6 +933,7 @@ static void UpdateWave(float deltaTime)
 //spawn zombies
 static void SpawnZombie(void)
 {
+	//find inactive slot in zombie arr to spawn new zombie
 	int slot = -1;
 	for (int i = 0; i < MAX_ZOMBIES; ++i)
 	{
@@ -945,16 +946,20 @@ static void SpawnZombie(void)
 	if (slot < 0) return; // All slots full
 
 	// Wave difficulty scaling
+	//chance for runner starts at wave 3,with a max of 35% chance at wave 6 (increase by 7% per wave)
 	float runnerChance = (s_wave >= 3) ? (0.07f * (float)(s_wave - 2)) : 0.0f;
 	if (runnerChance > 0.35f) runnerChance = 0.35f;
 
+	//chance for brute starts at wave 5, with a max of 18% chance at wave 9 (increase by 4% per wave)
 	float bruteChance = (s_wave >= 5) ? (0.04f * (float)(s_wave - 4)) : 0.0f;
 	if (bruteChance > 0.18f) bruteChance = 0.18f;
 
 	float roll = CP_Random_RangeFloat(0.0f, 1.0f);
 
+	//health scales by 10% per wave, speed scales by 3% per wave (max 50% faster), damage scales by 5% per wave
 	float hpMul = 1.0f + 0.10f * (float)(s_wave - 1);
 	float spdMul = 1.0f + 0.03f * (float)(s_wave - 1);
+	//caps speed at 1.5 times of based speed
 	if (spdMul > 1.5f) spdMul = 1.5f;
 
 	float dmgMul = 1.0f + 0.05f * (float)(s_wave - 1);
@@ -996,7 +1001,7 @@ static void SpawnZombie(void)
 	// Spawn just outside a random edge (0 = top, 1 = right, 2 = bottom, 3 = left)
 	const float margin = 40.0f;
 	int edge = (int)CP_Random_RangeFloat(0.0f, 4.0f);
-
+	//where to spawn zombie based on edge
 	switch (edge)
 	{
 	case 0:  // Top
@@ -1016,6 +1021,7 @@ static void SpawnZombie(void)
 
 static void DrawZombies(void)
 {
+	//check for active zombies and draw them on screen 
 	for (int i = 0; i < MAX_ZOMBIES; ++i)
 	{
 		const Zombie* z = &s_zombies[i];
@@ -1024,7 +1030,7 @@ static void DrawZombies(void)
 		float x = z->pos.x;
 		float y = z->pos.y;
 		float r = z->radius;
-
+		//set skin color
 		CP_Color skinColor;
 		float armW, armL, armOffsetY;
 
@@ -1033,13 +1039,12 @@ static void DrawZombies(void)
 		{
 			//check if hit if hit chang ecolor to white for a flash effect
 			skinColor = (z->hitFlash > 0.0f) ? Col(255, 255, 255, 255) : Col(95, 155, 85, 255);
-			//move arms to replicate getting hit
-			armW = 8.0f;
-			armL = r * 1.5f;
-			armOffsetY = 0.0f;
+			armW = 8.0f;          // Arm width (thickness)
+			armL = r * 1.5f;      // Arm length
+			armOffsetY = 0.0f;    // Vertical offset
 		}
 		else if (z->type == Z_RUNNER)
-		{
+		{//if zombie is hit flash white else stay same color / yellowish color for runener zombie 
 			skinColor = (z->hitFlash > 0.0f) ? Col(255, 255, 255, 255) : Col(220, 180, 50, 255);
 			armW = 6.0f;
 			armL = r * 1.8f;
@@ -1062,6 +1067,7 @@ static void DrawZombies(void)
 		CP_Settings_NoFill();
 		CP_Settings_Stroke(Col(20, 35, 20, 255));
 		CP_Settings_StrokeWeight(1.5f);
+		//draw outlines for zombie arms 
 		CP_Graphics_DrawRect(x - r - armW * 0.5f, y - armL + armOffsetY, armW, armL);
 		CP_Graphics_DrawRect(x + r - armW * 0.5f, y - armL + armOffsetY, armW, armL);
 		CP_Settings_NoStroke();
@@ -1072,8 +1078,11 @@ static void DrawZombies(void)
 		//draw zombie health bar if not full
 		if (z->hp < z->maxHp)
 		{
+			//draw health bar above zombie
 			float barW = r * 2.4f;
+			//get ratio of current health to max health to draw how much health left
 			float hpRatio = z->hp / z->maxHp;
+			//draw health bar above zombie
 			float barY = y - r - armL - 10.0f;
 
 			G_Rect(x - barW * 0.5f, barY, barW, 5.0f, Col(0, 0, 0, 180));
