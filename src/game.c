@@ -32,7 +32,7 @@
 #define BULLET_LIFE                1.20f   // seconds before the bullet disappears
 #define GHOST_DRAIN_RATE           70.0f   // how fast the pale "ghost" bar catches up (HP per second)
 
-// ---- pickups dropped by zombies ----
+// ---- pickups dropped by zombies ---- (syahmi
 #define MAX_PICKUPS           64
 #define MAX_TEXTS             32       // floating "+30 HP" style pop-ups on screen at once
 #define MEDKIT_HEAL           30.0f    // medkit: instant heal
@@ -55,6 +55,7 @@ typedef enum {
 
 // Bullet and Player structs are in game.h, Zombie is in zombie.h
 
+// syahmi
 typedef struct
 {
 	bool active;
@@ -64,6 +65,7 @@ typedef struct
 	float bob;       // used for the gentle up/down float
 } Pickup;
 
+// syahmi
 typedef struct
 {
 	bool active;
@@ -204,6 +206,8 @@ static void UpdatePlayerMovementAndAim(float deltaTime)
 		}
 	}
 }
+
+// syahmi
 
 static void DrawBackgroundGrid(void)
 {
@@ -405,73 +409,79 @@ static void SpawnPickup(PickupType type, CP_Vector pos)
 		if (s_pickups[i].active) continue;   // slot in use, try the next one
 
 		s_pickups[i] = (Pickup){
-			.active = true,
+			.active = true, // mark this slot as in use
 			.type = type,
 			// keep it on screen even if the zombie died at the edge
 			.pos = CP_Vector_Set(CP_Math_ClampFloat(pos.x, 30.0f, windowWidth - 30.0f),
 								 CP_Math_ClampFloat(pos.y, 30.0f, windowHeight - 30.0f)),
-			.life = (type == PICK_BLOOD) ? 10.0f : 14.0f,
-			.bob = CP_Random_RangeFloat(0.0f, TWO_PI_F)
+			.life = (type == PICK_BLOOD) ? 10.0f : 14.0f, // blood drops vanish faster than other pickups
+			.bob = CP_Random_RangeFloat(0.0f, TWO_PI_F) // up/down float
 		};
-		return;
+		return; // stop after spawning one pickup
 	}
 }
 
 // What happens when the player touches a pickup of this type.
 static void CollectPickup(PickupType type)
 {
-	char buf[48];
-	switch (type)
+	char buf[48];   // scratch space for building the pop-up text
+
+	switch (type)   // jump to the case that matches this pickup's type
 	{
 	case PICK_BLOOD:
-		Heal(BLOOD_DROP_HEAL);
-		break;
+		Heal(BLOOD_DROP_HEAL);      // small instant heal (+4 HP) 
+		break;                      
+
 	case PICK_MEDKIT:
-		Heal(MEDKIT_HEAL);
-		snprintf(buf, sizeof(buf), "+%.0f HP", MEDKIT_HEAL);
-		SpawnText(player.position, buf, 120, 255, 140);
+		Heal(MEDKIT_HEAL);          // big instant heal (+30 HP), Heal() stops it going above max HP
+		snprintf(buf, sizeof(buf), "+%.0f HP", MEDKIT_HEAL);   // build the text "+30 HP"
+		SpawnText(player.position, buf, 120, 255, 140);        // show it above the player in green
 		break;
+
 	case PICK_BANDAGE:
-		player.regenPool += BANDAGE_POOL;     // healed gradually by the player update
-		snprintf(buf, sizeof(buf), "REGEN +%.0f", BANDAGE_POOL);
-		SpawnText(player.position, buf, 150, 255, 200);
+		player.regenPool += BANDAGE_POOL;   // queue 40 HP of healing; the player update heals it slowly (6 HP per second)
+		snprintf(buf, sizeof(buf), "REGEN +%.0f", BANDAGE_POOL);   // build the text "REGEN +40"
+		SpawnText(player.position, buf, 150, 255, 200);            // show it above the player in light green
 		break;
+
 	case PICK_BLOODLUST:
-		player.bloodlust = BLOODLUST_TIME;    // kills heal you until this runs out
-		SpawnText(player.position, "BLOODLUST!", 230, 80, 255);
+		player.bloodlust = BLOODLUST_TIME;   // start the 12 second timer; kills heal you until it runs out
+		SpawnText(player.position, "BLOODLUST!", 230, 80, 255);    // show it above the player in purple
 		break;
 	}
 }
 
 static void UpdatePickups(float deltaTime)
 {
-	for (int i = 0; i < MAX_PICKUPS; ++i)
+	for (int i = 0; i < MAX_PICKUPS; ++i)          // go through every slot in the pickup array
 	{
-		if (!s_pickups[i].active) continue;
+		if (!s_pickups[i].active) continue;        // empty slot, skip to the next one
 
-		s_pickups[i].bob += deltaTime;
-		s_pickups[i].life -= deltaTime;
-		if (s_pickups[i].life <= 0.0f)         // nobody collected it in time
+		s_pickups[i].bob += deltaTime;             // advance the float animation timer (used by DrawPickups)
+		s_pickups[i].life -= deltaTime;            // count down the seconds before it disappears
+		if (s_pickups[i].life <= 0.0f)             // nobody collected it in time
 		{
-			s_pickups[i].active = false;
-			continue;
+			s_pickups[i].active = false;           // free the slot so it can be reused
+			continue;                              // nothing more to do for this pickup this frame
 		}
 
+		// arrow from the pickup to the player, and how long that arrow is
 		CP_Vector toPlayer = CP_Vector_Subtract(player.position, s_pickups[i].pos);
 		float distance = CP_Vector_Length(toPlayer);
 
 		// blood drops fly toward the player once they are close enough
 		if (s_pickups[i].type == PICK_BLOOD && distance < BLOOD_MAGNET_RANGE)
 		{
-			s_pickups[i].pos = CP_Vector_Add(s_pickups[i].pos,
-				CP_Vector_Scale(GetNormalizedDirection(toPlayer), BLOOD_MAGNET_SPEED * deltaTime));
+			s_pickups[i].pos = CP_Vector_Add(s_pickups[i].pos,                     // move the pickup...
+				CP_Vector_Scale(GetNormalizedDirection(toPlayer),                  // ...in the direction of the player...
+					BLOOD_MAGNET_SPEED * deltaTime));                              // ...by this frame's share of the speed
 		}
 
-		// touching the player = collected
+		// touching the player = collected (two circles overlap when distance < sum of radii)
 		if (distance < PLAYER_RADIUS + PickupRadius(s_pickups[i].type))
 		{
-			CollectPickup(s_pickups[i].type);
-			s_pickups[i].active = false;
+			CollectPickup(s_pickups[i].type);      // apply the effect (heal, bandage, bloodlust)
+			s_pickups[i].active = false;           // remove the pickup
 		}
 	}
 }

@@ -149,8 +149,10 @@ void Main_Menu_Init(void)
 	s_menuTime = 0.0f;
 	s_k = (s_menuW / 1600.0f < s_menuH / 900.0f) ? s_menuW / 1600.0f : s_menuH / 900.0f;
 
-	s_playButton.w = 380.0f * s_k; s_playButton.h = 70.0f * s_k;
-	s_playButton.x = (s_menuW - s_playButton.w) * 0.5f; s_playButton.y = 320.0f * s_k;
+	s_playButton.w = 380.0f * s_k; 
+	s_playButton.h = 70.0f * s_k;
+	s_playButton.x = (s_menuW - s_playButton.w) * 0.5f;
+	s_playButton.y = 320.0f * s_k;
 	s_playButton.label = "PLAY";
 
 	s_quitButton = s_playButton;
@@ -190,13 +192,6 @@ void Main_Menu_Update(void)
 
 	M_DrawButton(&s_playButton, mx, my);
 	M_DrawButton(&s_quitButton, mx, my);
-
-	/* if (Game_GetBestWave() > 0)
-	{
-		char best[96];
-		snprintf(best, sizeof(best), "Best this session: wave %d  /  score %d", Game_GetBestWave(), Game_GetBestScore());
-		M_Text(best, s_menuW * 0.5f, 520.0f * s_k, 28.0f * s_k, CP_Color_Create(255, 230, 120, 255), true);
-	} */
 
 	// how to play
 	float lx = s_menuW * 0.5f - 640.0f * s_k;
