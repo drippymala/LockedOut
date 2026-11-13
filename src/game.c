@@ -11,7 +11,7 @@
 
 #include <stdio.h>
 #include "cprocessing.h"
-#include "utils.h"       // Fixes C4013 'IsAreaClicked' undefined
+#include "utils.h"       
 #include "game.h"        // Matches the Game_Init / Game_Update / Game_Exit declarations
 #include "mainmenu.h"
 #include "zombie.h"      // zombie spawning, chasing, drawing (zombie.c)
