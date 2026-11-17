@@ -65,8 +65,6 @@ void SpawnZombie(int wave)
 	float bruteChance = (wave >= 5) ? (0.04f * (float)(wave - 4)) : 0.0f;
 	if (bruteChance > 0.18f) bruteChance = 0.18f;
 
-	float roll = CP_Random_RangeFloat(0.0f, 1.0f);
-
 	//health scales by 10% per wave, speed scales by 3% per wave (max 50% faster), damage scales by 5% per wave
 	float hpMul = 1.0f + 0.10f * (float)(wave - 1);
 	float spdMul = 1.0f + 0.03f * (float)(wave - 1);
@@ -80,31 +78,36 @@ void SpawnZombie(int wave)
 	z->id = s_nextZombieId++;
 	z->hitFlash = 0.0f;
 
-	// Pick zombie archetype
-	if (roll < bruteChance)
+	// Pick zombie archetype: check brute first, then runner, else walker
+	if (CP_Random_RangeFloat(0.0f, 1.0f) < bruteChance)
 	{
 		z->type = Z_BRUTE;
-		z->maxHp = 220.0f * hpMul;
-		z->speed = 62.0f * spdMul;
+		z->maxHp = 220.0f;
+		z->speed = 62.0f;
 		z->radius = 26.0f;
-		z->damage = 22.0f * dmgMul;
+		z->damage = 22.0f;
 	}
-	else if (roll < bruteChance + runnerChance)
+	else if (CP_Random_RangeFloat(0.0f, 1.0f) < runnerChance)
 	{
 		z->type = Z_RUNNER;
-		z->maxHp = 22.0f * hpMul;
-		z->speed = 190.0f * spdMul;
+		z->maxHp = 22.0f;
+		z->speed = 190.0f;
 		z->radius = 12.0f;
-		z->damage = 6.0f * dmgMul;
+		z->damage = 6.0f;
 	}
 	else
 	{
 		z->type = Z_WALKER;
-		z->maxHp = 40.0f * hpMul;
-		z->speed = 95.0f * spdMul;
+		z->maxHp = 40.0f;
+		z->speed = 95.0f;
 		z->radius = 15.0f;
-		z->damage = 10.0f * dmgMul;
+		z->damage = 10.0f;
 	}
+
+	z->maxHp *= hpMul;
+	z->speed *= spdMul;
+	z->damage *= dmgMul;
+	z->hp = z->maxHp;
 
 	z->hp = z->maxHp;
 	z->attackTimer = 0.5f;
