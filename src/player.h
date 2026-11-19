@@ -3,14 +3,14 @@
 // author:	Sean
 //
 // brief:	Declarations for the player code: WASD movement,
-//			mouse aim, gun switching, player sprite, crosshair,
-//			bullet hitbox and player hitbox.
+//			mouse aim, gun switching, player sprite, crosshair
+//			and player hitbox. (Bullet / laser hitboxes are in weapon.c.)
 //
 // Copyright © 2026 DigiPen, All rights reserved.
 //---------------------------------------------------------
 
 #pragma once
-#include "game.h"     // Player and Bullet types, player / bullet / window globals
+#include "game.h"     // Player type, player / window globals
 #include "zombie.h"   // Zombie type and s_zombies
 
 /* WASD Movement */
@@ -25,9 +25,6 @@ void HandleGunSwitch(void);
 
 /* Player Sprite */
 void DrawPlayerSprite(void);
-
-/* Bullet Hitbox: returns the index of the zombie the bullet hit, or -1 if it hit nothing */
-int BulletHitZombie(Bullet* b);
 
 /* Player Hitbox */
 bool ZombieTouchingPlayer(const Zombie* z);

@@ -3,7 +3,8 @@
 // author:	Sean
 //
 // brief:	Player code: WASD movement, mouse aim, gun switching,
-//			player sprite, crosshair, bullet hitbox and player hitbox.
+//			player sprite, crosshair and player hitbox.
+//			(Bullet / laser hitboxes moved to weapon.c.)
 //			Uses the shared player / s_zombies globals from game.h.
 //
 // Copyright © 2026 DigiPen, All rights reserved.
@@ -14,6 +15,7 @@
 #include "game.h"
 #include "zombie.h"
 #include "player.h"
+#include "weapon.h"
 
 #define PLAYER_SPEED               290.0f  // px per second
 #define GUN_BARREL_THICKNESS       9.0f
@@ -22,8 +24,6 @@
 #define CROSSHAIR_TICK_START       14.0f
 #define CROSSHAIR_TICK_END         20.0f
 #define CROSSHAIR_THICKNESS        2.0f
-#define PISTOL_KNOCKBACK           4.0f    // px a zombie is shoved back when hit
-#define ZOMBIE_HIT_FLASH_TIME      0.08f   // white flash when a bullet hits a zombie
 
 /* =========================================================
    WASD Movement
@@ -38,7 +38,8 @@ void MovePlayer(float deltaTime)
 
 	// normalised so moving diagonally isn't faster
 	CP_Vector direction = GetNormalizedDirection(input);
-	player.position = CP_Vector_Add(player.position, CP_Vector_Scale(direction, PLAYER_SPEED * deltaTime));
+	// GetMoveSpeedMultiplier (weapon.c) slows you down while charging a blood bomb
+	player.position = CP_Vector_Add(player.position, CP_Vector_Scale(direction, PLAYER_SPEED * GetMoveSpeedMultiplier() * deltaTime));
 
 	// keep the player inside the window
 	player.position.x = CP_Math_ClampFloat(player.position.x, PLAYER_RADIUS, windowWidth - PLAYER_RADIUS);
@@ -61,12 +62,12 @@ void AimPlayerAtMouse(void)
 	}
 }
 
-// Ring with four tick marks around the mouse position, in the pistol colour.
+// Ring with four tick marks around the mouse position, in the current gun's colour.
 void DrawMouseCrosshair(void)
 {
 	float mouseX = CP_Input_GetMouseX();
 	float mouseY = CP_Input_GetMouseY();
-	CP_Color color = Col(PISTOL_RGB, 230);
+	CP_Color color = GetWeaponColor(player.weapon, 230);
 
 	float in  = CROSSHAIR_TICK_START;   // each tick starts this far from the centre
 	float out = CROSSHAIR_TICK_END;     // and ends this far
@@ -83,8 +84,16 @@ void DrawMouseCrosshair(void)
    ========================================================= */
 void HandleGunSwitch(void)
 {
-	//for gun switching in the future, currently only one gun
-	if (CP_Input_KeyTriggered(KEY_1) && player.owned[W_PISTOL]) player.weapon = W_PISTOL;
+	// Ctrl + number is a cheat key (game.c), so don't also switch guns
+	bool ctrlHeld = CP_Input_KeyDown(KEY_LEFT_CONTROL) || CP_Input_KeyDown(KEY_RIGHT_CONTROL);
+	if (ctrlHeld) return;
+
+	// keys 1-5 pick a gun, but only one you own (every gun except the pistol is a rare zombie drop)
+	if (CP_Input_KeyTriggered(KEY_1) && player.owned[W_PISTOL])       player.weapon = W_PISTOL;
+	if (CP_Input_KeyTriggered(KEY_2) && player.owned[W_HEALTH_LASER]) player.weapon = W_HEALTH_LASER;
+	if (CP_Input_KeyTriggered(KEY_3) && player.owned[W_BLOODRANG])    player.weapon = W_BLOODRANG;
+	if (CP_Input_KeyTriggered(KEY_4) && player.owned[W_BLOOD_BOMB])   player.weapon = W_BLOOD_BOMB;
+	if (CP_Input_KeyTriggered(KEY_5) && player.owned[W_LAST_STAND])   player.weapon = W_LAST_STAND;
 }
 
 /* =========================================================
@@ -95,7 +104,7 @@ void DrawPlayerSprite(void)
 {
 	int alpha = 255;
 
-	CP_Color gunColor       = Col(PISTOL_RGB, alpha);
+	CP_Color gunColor       = GetWeaponColor(player.weapon, alpha);
 	CP_Color bodyColor      = Col(60, 130, 220, alpha);
 	CP_Color highlightColor = Col(120, 185, 255, alpha);
 
@@ -106,36 +115,6 @@ void DrawPlayerSprite(void)
 	DrawFilledCircle(player.position.x, player.position.y, PLAYER_RADIUS, bodyColor);
 	DrawFilledCircle(player.position.x - PLAYER_HIGHLIGHT_OFFSET, player.position.y - PLAYER_HIGHLIGHT_OFFSET,
 		PLAYER_RADIUS * 0.45f, highlightColor);
-}
-
-/* =========================================================
-   Bullet Hitbox
-   ========================================================= */
-// Checks one bullet against every zombie: do the bullet circle and a zombie circle overlap?
-// On a hit: damages the zombie, flashes it, knocks it back, removes the bullet,
-// and returns that zombie's index so game.c can handle the kill. Returns -1 if nothing was hit.
-int BulletHitZombie(Bullet* b)
-{
-	for (int z = 0; z < MAX_ZOMBIES; ++z)
-	{
-		Zombie* zombie = &s_zombies[z];
-		if (!zombie->active) continue;
-
-		if (!AreCirclesIntersecting(b->pos.x, b->pos.y, b->radius,
-		                            zombie->pos.x, zombie->pos.y, zombie->radius)) continue;
-
-		// Hurt zombie & trigger hit flash
-		zombie->hp -= b->damage;
-		zombie->hitFlash = ZOMBIE_HIT_FLASH_TIME;
-
-		// Knockback along the bullet's direction
-		zombie->pos = CP_Vector_Add(zombie->pos, CP_Vector_Scale(GetNormalizedDirection(b->vel), PISTOL_KNOCKBACK));
-
-		// Bullet disappears on hit, so stop checking other zombies
-		b->active = false;
-		return z;
-	}
-	return -1;
 }
 
 /* =========================================================

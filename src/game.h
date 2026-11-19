@@ -13,25 +13,16 @@
 #pragma once
 #include <stdbool.h>
 #include "cprocessing.h"   // needed for CP_Vector
+#include "weapon.h"        // WeaponType, gun stats, bullets and lasers
 
 /* ---------- Shared sizes and values (used by game.c and player.c) ---------- */
-// (zombie types, MAX_ZOMBIES and s_zombies live in zombie.h)
-#define MAX_BULLETS          512             // max amt of bullets
+// (zombie types, MAX_ZOMBIES and s_zombies live in zombie.h; every gun stat lives in weapon.h)
 #define PLAYER_RADIUS        18.0f
 #define GUN_BARREL_LENGTH    14.0f
-#define PISTOL_RGB           255, 230, 120   // pistol colour (barrel, crosshair, bullets): use as Col(PISTOL_RGB, alpha)
+#define HEALTH_BAR_WIDTH     380.0f          // full health bar width in px (the health laser is as long as the filled part)
+#define HEALTH_BAR_HEIGHT    30.0f           // health bar height in px (the health laser is this thick)
 
 /* ---------- Shared types ---------- */
-typedef enum { W_PISTOL, W_COUNT } WeaponType;
-
-typedef struct
-{
-	bool active;
-	WeaponType type;
-	CP_Vector pos, vel; // velocity of the bullet
-	float life, damage, radius;
-} Bullet;
-
 typedef struct
 {
 	CP_Vector position;
@@ -56,9 +47,11 @@ typedef struct
 // "extern" = this variable exists, but its memory is created in game.c.
 // Any file that includes game.h can then read and change the same variable.
 extern Player player;
-extern Bullet M_bullets[MAX_BULLETS];
 extern float  windowWidth;
 extern float  windowHeight;
+
+/* ---------- Health bar (shared with weapon.c so the laser matches it) ---------- */
+CP_Color GetHealthBarColor(float hp, float maxHp);   // green > 50%, yellow > 25%, red below
 
 /* ---------- Game state callbacks ---------- */
 void Game_Init(void);

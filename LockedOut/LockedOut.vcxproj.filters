@@ -33,6 +33,9 @@
     <ClCompile Include="..\src\zombie.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\weapon.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\..\..\Desktop\coding\gamers!\game.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -51,6 +54,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\zombie.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\weapon.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

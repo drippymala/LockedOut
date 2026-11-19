@@ -40,13 +40,15 @@ static float      s_k = 1.0f;     // UI scale: 1.0 at 1600x900, smaller for smal
 
 typedef struct { int r, g, b; const char* text; } LegendLine;
 
+// The guns from weapon.h, in key order. Colours match each gun's colour in game
+// (Last Stand changes colour with your HP, so it shows its mid-health red here).
 static const LegendLine s_bulletLegend[] =
 {
-	{ 255, 230, 120, "1  PISTOL   - flat cost per shot" },
-	{ 255, 150,  60, "2  TARGET LOCK	- health bar charges a homing shot" },
-	{ 110, 255, 140, "3  PARASITE    - pay up front, refunded on hit" },
-	{ 120, 200, 255, "4  MINIGUN	- cost increases while held" },
-	{ 220, 120, 255, "5  HEALTH LASER	- health bar extends into a laser beam" }
+	{ 255, 230, 120, "1  PISTOL  - flat cost per shot" },
+	{ 255,  50,  50, "2  HEALTH LASER  - your health bar fires as a beam" },
+	{ 200,  20,  50, "3  BLOODRANG  - catch it to get your HP back" },
+	{ 230,  40, 110, "4  BLOOD BOMB  - hold to pour HP in, then throw" },
+	{ 228,  95,  95, "5  LAST STAND  - stronger the lower your HP" }
 };
 
 static const LegendLine s_pickupLegend[] =
@@ -197,7 +199,7 @@ void Main_Menu_Update(void)
 	float lx = s_menuW * 0.5f - 640.0f * s_k;
 	float rx = s_menuW * 0.5f + 80.0f * s_k;
 	float ty = 590.0f * s_k;
-	M_Text("GUNS (randomized every 3 waves)", lx, ty, 28.0f * s_k, CP_Color_Create(255, 255, 255, 255), false);
+	M_Text("GUNS (rare drops from zombies)", lx, ty, 28.0f * s_k, CP_Color_Create(255, 255, 255, 255), false);
 	M_Text("PICKUPS (from enemies drops)", rx, ty, 28.0f * s_k, CP_Color_Create(255, 255, 255, 255), false);
 	for (int i = 0; i < 5; ++i)
 	{
@@ -207,7 +209,7 @@ void Main_Menu_Update(void)
 		M_Circle(rx + 8.0f * s_k, y, 8.0f * s_k, CP_Color_Create(s_pickupLegend[i].r, s_pickupLegend[i].g, s_pickupLegend[i].b, 255));
 		M_Text(s_pickupLegend[i].text, rx + 28.0f * s_k, y, 25.0f * s_k, CP_Color_Create(220, 220, 220, 255), false);
 	}
-	M_Text("WASD - Move     Mouse - Aim     Hold LEFT CLICK - Shoot     1-5 - Switch bullet     ESC - Pause",
+	M_Text("WASD - Move     Mouse - Aim     Hold LEFT CLICK - Shoot     1-5 - Switch gun     ESC - Pause",
 		s_menuW * 0.5f, s_menuH - 40.0f * s_k, 24.0f * s_k, CP_Color_Create(180, 180, 180, 255), true);
 }
 
