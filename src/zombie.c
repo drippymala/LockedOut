@@ -134,75 +134,74 @@ void SpawnZombie(int wave)
 
 void DrawZombies(void)
 {
-	//check for active zombies and draw them on screen
 	for (int i = 0; i < MAX_ZOMBIES; ++i)
 	{
 		const Zombie* z = &s_zombies[i];
 		if (!z->active) continue;
 
-		float x = z->pos.x;
-		float y = z->pos.y;
 		float r = z->radius;
-		//set skin color
 		CP_Color skinColor;
-		float armW, armL, armOffsetY;
+		float armThickness, armLength;
 
-		//check zombie type
+		// 1. Pick colors and arm size based on archetype
 		if (z->type == Z_WALKER)
 		{
-			//check if hit if hit chang ecolor to white for a flash effect
 			skinColor = (z->hitFlash > 0.0f) ? Col(255, 255, 255, 255) : Col(95, 155, 85, 255);
-			armW = 8.0f;          // Arm width (thickness)
-			armL = r * 1.5f;      // Arm length
-			armOffsetY = 0.0f;    // Vertical offset
+			armThickness = 8.0f;
+			armLength = r * 1.5f;
 		}
 		else if (z->type == Z_RUNNER)
-		{//if zombie is hit flash white else stay same color / yellowish color for runener zombie
+		{
 			skinColor = (z->hitFlash > 0.0f) ? Col(255, 255, 255, 255) : Col(220, 180, 50, 255);
-			armW = 6.0f;
-			armL = r * 1.8f;
-			armOffsetY = -r * 0.2f;
+			armThickness = 6.0f;
+			armLength = r * 1.8f;
 		}
-		else
+		else // Z_BRUTE
 		{
 			skinColor = (z->hitFlash > 0.0f) ? Col(255, 255, 255, 255) : Col(55, 95, 55, 255);
-			armW = 16.0f;
-			armL = r * 1.4f;
-			armOffsetY = r * 0.2f;
+			armThickness = 16.0f;
+			armLength = r * 1.4f;
 		}
 
-		//draw zombie arms
-		G_Rect(x - r - armW * 0.5f, y - armL + armOffsetY, armW, armL, skinColor);
-		G_Rect(x + r - armW * 0.5f, y - armL + armOffsetY, armW, armL, skinColor);
+		// 2. Vector Math: Find forward direction and sideways direction
+		CP_Vector toPlayer = CP_Vector_Subtract(player.position, z->pos);
+		//this gets direction from zombie to player, then normalizes it to a unit vector
+		CP_Vector fwd = GetNormalizedDirection(toPlayer);     // Points straight at player
 
-		//draw zombie arm outlines
-		CP_Settings_RectMode(CP_POSITION_CORNER);
-		CP_Settings_NoFill();
-		CP_Settings_Stroke(Col(20, 35, 20, 255));
-		CP_Settings_StrokeWeight(1.5f);
-		//draw outlines for zombie arms
-		CP_Graphics_DrawRect(x - r - armW * 0.5f, y - armL + armOffsetY, armW, armL);
-		CP_Graphics_DrawRect(x + r - armW * 0.5f, y - armL + armOffsetY, armW, armL);
-		CP_Settings_NoStroke();
-		//zombie body
-		G_Circle(x, y, r, skinColor);
-		G_Ring(x, y, r, 2.0f, Col(20, 35, 20, 255));
+		//this for postioning shoulders since using shoulders to point zombie to the correct direction 
+		//when zombie facing norht since using right shoulder therefore -y axis is used to get the right shoulder position
+		CP_Vector side = CP_Vector_Set(-fwd.y, fwd.x);        // 90 degrees sideways
 
-		//draw zombie health bar if not full
+		// 3. Find the left and right shoulder positions (offset sideways by radius r)
+		CP_Vector leftShoulder  = CP_Vector_Subtract(z->pos, CP_Vector_Scale(side, r));
+		CP_Vector rightShoulder = CP_Vector_Add(z->pos, CP_Vector_Scale(side, r));
+
+		// 4. Find the hand positions (reach forward from shoulders toward player)
+		CP_Vector reach = CP_Vector_Scale(fwd, armLength);
+		CP_Vector leftHand  = CP_Vector_Add(leftShoulder, reach);
+		CP_Vector rightHand = CP_Vector_Add(rightShoulder, reach);
+
+		// 5. Draw the arms as thick lines reaching forward
+		DrawColoredLine(leftShoulder.x, leftShoulder.y, leftHand.x, leftHand.y, armThickness, skinColor);
+		DrawColoredLine(rightShoulder.x, rightShoulder.y, rightHand.x, rightHand.y, armThickness, skinColor);
+
+		// 6. Draw the head circle
+		G_Circle(z->pos.x, z->pos.y, r, skinColor);
+		G_Ring(z->pos.x, z->pos.y, r, 2.0f, Col(20, 35, 20, 255));
+
+		// 7. Draw floating health bar (if damaged)
 		if (z->hp < z->maxHp)
 		{
-			//draw health bar above zombie
 			float barW = r * 2.4f;
-			//get ratio of current health to max health to draw how much health left
 			float hpRatio = z->hp / z->maxHp;
-			//draw health bar above zombie
-			float barY = y - r - armL - 10.0f;
+			float barY = z->pos.y - r - 12.0f;
 
-			G_Rect(x - barW * 0.5f, barY, barW, 5.0f, Col(0, 0, 0, 180));
-			G_Rect(x - barW * 0.5f, barY, barW * hpRatio, 5.0f, Col(220, 50, 50, 255));
+			G_Rect(z->pos.x - barW * 0.5f, barY, barW, 5.0f, Col(0, 0, 0, 180));
+			G_Rect(z->pos.x - barW * 0.5f, barY, barW * hpRatio, 5.0f, Col(220, 50, 50, 255));
 		}
 	}
 }
+
 
 void UpdateZombies(float deltaTime)
 {
