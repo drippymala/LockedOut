@@ -57,7 +57,7 @@ void SpawnZombie(int wave)
 	if (slot < 0) return; // All slots full
 
 	// Wave difficulty scaling
-		//chance for runner starts at wave 3,with a max of 35% chance at wave 6 (increase by 7% per wave)
+	//chance for runner starts at wave 3,with a max of 35% chance at wave 6 (increase by 7% per wave)
 	float runnerChance = (wave >= 3) ? (0.07f * (float)(wave - 2)) : 0.0f;
 	if (runnerChance > 0.35f) runnerChance = 0.35f;
 
