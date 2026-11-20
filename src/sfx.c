@@ -25,13 +25,13 @@ typedef struct
 
 static const SfxInfo s_info[SFX_COUNT] =
 {
-	[SFX_PISTOL]         = { "Assets/Sounds/pistol_shot.wav",          0.25f, 0.00f },
-	[SFX_HEALTH_LASER]   = { "Assets/Sounds/health_laser.wav",         0.35f, 0.00f },
-	[SFX_LAST_STAND]     = { "Assets/Sounds/last_stand_shot.wav",      0.3f, 0.00f },
-	[SFX_RANG_THROW]     = { "Assets/Sounds/bloodrang_throw.wav",      0.6f, 0.00f },
-	[SFX_RANG_CATCH]     = { "Assets/Sounds/bloodrang_catch.wav",      0.6f, 0.00f },
-	[SFX_BOMB_CHARGE]    = { "Assets/Sounds/blood_bomb_charge.wav",    0.5f, 0.00f },
-	[SFX_BOMB_EXPLOSION] = { "Assets/Sounds/blood_bomb_explosion.wav", 0.8f, 0.05f },
+	[SFX_PISTOL]         = { "Assets/Sounds/pistol_shot.wav",          0.08f, 0.00f },
+	[SFX_HEALTH_LASER]   = { "Assets/Sounds/health_laser.wav",         0.12f, 0.00f },
+	[SFX_LAST_STAND]     = { "Assets/Sounds/last_stand_shot.wav",      0.10f, 0.00f },
+	[SFX_RANG_THROW]     = { "Assets/Sounds/bloodrang_throw.wav",      0.08f, 0.00f },
+	[SFX_RANG_CATCH]     = { "Assets/Sounds/bloodrang_catch.wav",      0.10f, 0.00f },
+	[SFX_BOMB_CHARGE]    = { "Assets/Sounds/blood_bomb_charge.wav",    0.12f, 0.00f },
+	[SFX_BOMB_EXPLOSION] = { "Assets/Sounds/blood_bomb_explosion.wav", 0.15f, 0.05f },
 	[SFX_ZOMBIE_HIT]     = { "Assets/Sounds/zombie_hit.wav",           0.75f, 0.04f },
 	[SFX_PLAYER_HURT]    = { "Assets/Sounds/player_hurt.wav",          0.85f, 0.10f },
 };
