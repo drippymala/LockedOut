@@ -265,6 +265,34 @@ static void DrawHud(void)
 		G_Text(buf, bx, statusY, 22.0f, Col(150, 255, 190, 255), AL_LEFT);
 	}
 
+	// ----- bottom: gun slots (1-5), unowned guns show as ??? -----
+	const float slotW = 200.0f, slotH = 56.0f, slotGap = 10.0f;
+	float slotX = (screenW - (slotW * W_COUNT + slotGap * (W_COUNT - 1))) * 0.5f;
+	float slotY = screenH - 100.0f;
+
+	for (int w = 0; w < W_COUNT; ++w)
+	{
+		float x = slotX + (slotW + slotGap) * (float)w;
+		bool owned = player.owned[w];
+		bool selected = (player.weapon == (WeaponType)w);
+
+		// slot background (a bit darker when not selected)
+		G_Rect(x, slotY, slotW, slotH, Col(0, 0, 0, selected ? 200 : 140));
+
+		// coloured underline on the gun you're holding
+		if (selected)
+		{
+			G_Rect(x, slotY + slotH - 5.0f, slotW, 5.0f, GetWeaponColor((WeaponType)w, 255));
+		}
+
+		// label: "[2] HEALTH LASER" in the gun's colour, or "[2] ???" in grey if not unlocked yet
+		if (owned) snprintf(buf, sizeof(buf), "[%d] %s", w + 1, GetWeaponName((WeaponType)w));
+		else       snprintf(buf, sizeof(buf), "[%d] ???", w + 1);
+
+		G_Text(buf, x + slotW * 0.5f, slotY + slotH * 0.5f - 3.0f, 22.0f,
+			owned ? GetWeaponColor((WeaponType)w, 255) : Col(120, 120, 120, 255), AL_CENTER);
+	}
+
 	// Render the active weapon name, its cost description, and the exact HP cost per shot at the bottom center of the screen
 	GetWeaponHudText(player.weapon, buf, sizeof(buf));
 	G_Text(buf, screenW * 0.5f, screenH - 22.0f, 22.0f, Col(230, 230, 230, 255), AL_CENTER);
@@ -440,7 +468,8 @@ static void DrawPickups(void)
 		if (s_pickups[i].life < 3.0f && ((int)(s_pickups[i].life * 10.0f) % 2) == 0) continue;
 
 		float x = s_pickups[i].pos.x;
-		float y = s_pickups[i].pos.y + sinf(s_pickups[i].bob * 3.0f) * 3.0f;   // gentle up/down float
+		float y = s_pickups[i].pos.y + sinf(s_pickups[i].bob * 3.0f) *
+			3.0f;   // gentle up/down float
 
 		switch (s_pickups[i].type)
 		{
