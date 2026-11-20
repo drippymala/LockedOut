@@ -15,7 +15,7 @@
 #include "player.h"   // ZombieTouchingPlayer (player hitbox)
 #include "sfx.h"      // player hurt sound
 
-#define ZOMBIE_ATTACK_COOLDOWN     0.80f   // seconds between bites from the same zombie
+#define ZOMBIE_ATTACK_COOLDOWN     0.30f   // seconds between bites from the same zombie
 
 Zombie     s_zombies[MAX_ZOMBIES];   // not static: shared through zombie.h
 static int s_nextZombieId = 1;       // unique id per zombie
@@ -110,7 +110,7 @@ void SpawnZombie(int wave)
 	z->damage *= dmgMul;
 	z->hp = z->maxHp;
 	z->hp = z->maxHp;
-	z->attackTimer = 0.5f;
+	z->attackTimer = 0.0f;
 
 	// Spawn just outside a random edge (0 = top, 1 = right, 2 = bottom, 3 = left)
 	const float margin = 40.0f;
@@ -211,31 +211,37 @@ void UpdateZombies(float deltaTime)
 		Zombie* z = &s_zombies[i];
 		if (!z->active) continue;
 
-		// Reduce hit flash timer
+		// 1. Reduce hit flash timer
 		if (z->hitFlash > 0.0f)
 		{
 			z->hitFlash -= deltaTime;
 		}
 
-		// Steer toward player
-		//make zombie chase player after getting diretion.
-		CP_Vector toPlayer = CP_Vector_Subtract(player.position, z->pos);
-		//the direction zombie should move in to the player
-		CP_Vector moveDir = GetNormalizedDirection(toPlayer);
-
-		z->pos = CP_Vector_Add(z->pos, CP_Vector_Scale(moveDir, z->speed * deltaTime));
-
-		// Damage player if touching
-		if (ZombieTouchingPlayer(z))   // player hitbox (player.c)
+		// 2. Count down attack cooldown continuously while approaching
+		if (z->attackTimer > 0.0f)
 		{
 			z->attackTimer -= deltaTime;
+		}
+
+		// 3. Steer toward player
+		CP_Vector toPlayer = CP_Vector_Subtract(player.position, z->pos);
+		CP_Vector moveDir = GetNormalizedDirection(toPlayer);
+		z->pos = CP_Vector_Add(z->pos, CP_Vector_Scale(moveDir, z->speed * deltaTime));
+
+		// 4. Hit detection including arm reach
+		float reach = z->radius * 0.8f; // Accounts for extended arms
+		float touchDist = PLAYER_RADIUS + z->radius + reach;
+
+		if (CP_Vector_Distance(player.position, z->pos) <= touchDist)
+		{
 			if (z->attackTimer <= 0.0f)
 			{
+				// Immediate bite on contact
 				player.hp -= z->damage;
 				Sfx_Play(SFX_PLAYER_HURT);
-				z->attackTimer = ZOMBIE_ATTACK_COOLDOWN; // Attack interval
+				z->attackTimer = ZOMBIE_ATTACK_COOLDOWN; // Set delay before NEXT bite
 
-				player.combatTimer = 0.0f;      // taking damage resets out-of-combat timer
+				player.combatTimer = 0.0f;               // Reset out-of-combat timer
 			}
 		}
 	}
