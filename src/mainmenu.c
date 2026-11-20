@@ -20,6 +20,7 @@
 
 CP_Font myFont;
 CP_Image myImage;
+CP_Sound myMusic = NULL;
 
 // Loads the game font if it isn't loaded yet, then makes it the active font.
 void Font_EnsureLoaded(void)
@@ -145,6 +146,8 @@ static void M_DrawButton(const MenuButton* b, float mx, float my)
 void Main_Menu_Init(void)
 {
 	Font_EnsureLoaded();
+	myMusic = CP_Sound_Load("Assets/Sounds/Menu.mp3");
+	CP_Sound_PlayAdvanced(myMusic, 0.1f, 1.0f, false, CP_SOUND_GROUP_0);
 
 	s_menuW = (float)CP_System_GetWindowWidth();
 	s_menuH = (float)CP_System_GetWindowHeight();
@@ -164,6 +167,7 @@ void Main_Menu_Init(void)
 
 void Main_Menu_Update(void)
 {
+	
 	float dt = CP_System_GetDt();
 	if (dt > 0.05f) dt = 0.05f;
 	s_menuTime += dt;
@@ -215,7 +219,8 @@ void Main_Menu_Update(void)
 
 void Main_Menu_Exit(void)
 {
-
+	CP_Sound_StopGroup(CP_SOUND_GROUP_0);
+	CP_Sound_Free(myMusic);
     CP_Font_Free(myFont);
 	myFont = NULL;
 }
