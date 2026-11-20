@@ -27,7 +27,13 @@
 
 // (every gun stat — cost, fire delay, speed, damage — is in weapon.h)
 #define GHOST_DRAIN_RATE          70.0f   // how fast the pale "ghost" bar catches up (HP per second)
-#define WAVE_INTRO_TIME      2.2f   // seconds the "WAVE N" banner shows before zombies start spawning
+#define WAVE_INTRO_TIME      1.4f   // seconds the "WAVE N" banner shows before zombies start spawning
+#define WAVE_BREAK_TIME      1.5f   // seconds of "WAVE N CLEARED!" before the next wave (or the upgrade cards)
+#define CHEAT_SKIP_BREAK     0.25f  // Ctrl + N: much shorter break...
+#define CHEAT_SKIP_INTRO     0.35f  //           ...and wave banner
+#define FINAL_WAVE           20     // the boss wave: kill the boss to win
+#define UPGRADE_EVERY_WAVES  3      // after clearing every 3rd wave you pick one gun to upgrade
+#define UPGRADE_CLICK_DELAY  0.6f   // seconds before the upgrade cards can be clicked (so a shooting click doesn't pick one)
 
 
 // ---- pickups dropped by zombies ---- (syahmi
@@ -41,9 +47,21 @@
 #define BLOOD_MAGNET_SPEED    430.0f   //             ...at this speed (px/s)
 #define BLOODLUST_TIME        12.0f    // bloodlust: seconds of kill-healing
 #define BLOODLUST_KILL_HEAL   5.0f     //            ...HP healed per kill while it lasts
-#define WEAPON_DROP_BRUTE     0.20f    // new guns: chance a brute drops one you don't own yet
-#define WEAPON_DROP_OTHER     0.015f   //           chance any other zombie does
-#define WEAPON_PICKUP_LIFE    20.0f    // weapon pickups stay on the ground longer than heals
+// ---- drop chances when a zombie dies ----
+// Medkits and bandages are rarer now, and only go back up to their old rate when you're at DROP_CRITICAL_HP or lower.
+// Blood drops go up when you're at DROP_LOW_HP or lower.
+#define DROP_CRITICAL_HP           15.0f
+#define DROP_LOW_HP                30.0f
+#define DROP_BLOODLUST             0.03f    //  3%  rare, always
+#define DROP_MEDKIT                0.02f    //  2%  normally...
+#define DROP_MEDKIT_CRITICAL       0.05f    //  5%  ...at 15 HP or lower
+#define DROP_BANDAGE               0.025f   //  2.5% normally...
+#define DROP_BANDAGE_CRITICAL      0.06f    //  6%  ...at 15 HP or lower
+#define DROP_BLOOD                 0.40f    // 40%  normally...
+#define DROP_BLOOD_LOW             0.60f    // 60%  ...at 30 HP or lower
+#define DROP_BRUTE_HEAL            0.40f    // brutes: chance of an extra medkit / bandage normally...
+#define DROP_BRUTE_HEAL_CRITICAL   1.00f    //         ...always at 15 HP or lower
+#define WEAPON_PICKUP_LIFE   20.0f    // weapon pickups (cheat keys only now) stay on the ground longer than heals
 #define TWO_PI_F              6.2831853f
 
 typedef enum {
@@ -51,7 +69,7 @@ typedef enum {
 	PICK_MEDKIT,    // Large instant heal
 	PICK_BANDAGE,   // Medium heal
 	PICK_BLOODLUST, // Special buff item
-	PICK_WEAPON     // Unlocks a new gun type
+	PICK_WEAPON     // Unlocks a new gun type (only spawned by the Ctrl + 1-5 cheat; zombies don't drop guns)
 } PickupType;
 
 // Bullet and Player structs are in game.h, Zombie is in zombie.h
@@ -91,6 +109,13 @@ static int      s_toSpawn = 0;           // How many zombies left to spawn this 
 static float    s_spawnTimer = 0.0f;     // Delay between each spawn
 static float    s_waveClearTimer = 0.0f; // Delay before the next wave begins
 static float    s_waveIntroTimer = 0.0f; // counts down while the wave banner is showing
+static bool     s_cheatSkipping = false; // Ctrl + N was used: short break and short banner for this transition
+static bool     s_upgradeOpen = false;   // true while the "choose an upgrade" cards are showing
+static float    s_upgradeTimer = 0.0f;   // seconds since the upgrade cards opened
+
+static void GameOver_Start(bool won);    // [GAME OVER] section below (won = beat the boss)
+static void StartWave(void);             // waves section below
+static bool OpenUpgradeScreen(bool startWaveAfter);   // upgrade section below
 
 /* ---------- Logic & Rendering ---------- */
 
@@ -185,7 +210,7 @@ static void DrawHud(void)
 	int alive = CountAliveZombies();
 
 	// Main Wave text
-	snprintf(waveBuf, sizeof(waveBuf), "WAVE %d", s_wave);
+	snprintf(waveBuf, sizeof(waveBuf), "WAVE %d / %d", s_wave, FINAL_WAVE);
 	CP_Settings_TextSize(36.0f);
 	CP_Settings_Fill(Col(255, 230, 120, 255));
 	CP_Settings_TextAlignment(CP_TEXT_ALIGN_H_RIGHT, CP_TEXT_ALIGN_V_TOP);
@@ -201,7 +226,8 @@ static void DrawHud(void)
 	// Wave cleared announcement in the center of the screen
 	if (s_waveClearTimer > 0.0f)
 	{
-		snprintf(waveBuf, sizeof(waveBuf), "WAVE %d CLEARED!", s_wave);
+		if (s_wave >= FINAL_WAVE) snprintf(waveBuf, sizeof(waveBuf), "%s IS DEAD!", BOSS_NAME);
+		else                      snprintf(waveBuf, sizeof(waveBuf), "WAVE %d CLEARED!", s_wave);
 
 		CP_Settings_TextSize(48.0f);
 		CP_Settings_Fill(Col(120, 255, 150, 255));
@@ -226,8 +252,16 @@ static void DrawHud(void)
 
 	CP_Color hpCol = GetHealthBarColor(p->hp, p->maxHp);   // green / yellow / red
 
-	// While a health laser is flying, the health bar is "out there" as the beam, so hide the bar
-	if (!IsLaserActive())
+	// While a health laser is flying, the health bar is "out there" as the beam, so the bar left behind
+	// is only a faint grey shadow of itself (still there, but hard to read)
+	if (IsLaserActive())
+	{
+		G_Rect(bx - 4.0f, by - 4.0f, bw + 8.0f, bh + 8.0f, Col(0, 0, 0, 40));               // faint border
+		G_Rect(bx, by, bw * ratio, bh, Col(150, 150, 150, 45));                             // grey, see-through bar
+		snprintf(buf, sizeof(buf), "HP %.0f / %.0f", player.hp, player.maxHp);
+		G_Text(buf, bx + bw * 0.5f, by + bh * 0.5f, 20.0f, Col(200, 200, 200, 55), AL_CENTER);
+	}
+	else
 	{
 		// Draw a dark background bounding box/border behind the health bar for UI contrast
 		G_Rect(bx - 4.0f, by - 4.0f, bw + 8.0f, bh + 8.0f, Col(0, 0, 0, 170));
@@ -293,8 +327,34 @@ static void DrawHud(void)
 		if (owned) snprintf(buf, sizeof(buf), "[%d] %s", w + 1, GetWeaponName((WeaponType)w));
 		else       snprintf(buf, sizeof(buf), "[%d] ???", w + 1);
 
-		G_Text(buf, x + slotW * 0.5f, slotY + slotH * 0.5f - 3.0f, 22.0f,
+		G_Text(buf, x + slotW * 0.5f, slotY + slotH * 0.5f - (owned ? 10.0f : 3.0f), 21.0f,
 			owned ? GetWeaponColor((WeaponType)w, 255) : Col(120, 120, 120, 255), AL_CENTER);
+
+		// level under the name: "Lv2", or "Lv4 MAX" in gold once evolved
+		if (owned)
+		{
+			int level = GetWeaponLevel((WeaponType)w);
+			if (level >= MAX_WEAPON_LEVEL) snprintf(buf, sizeof(buf), "Lv%d MAX", level);
+			else                           snprintf(buf, sizeof(buf), "Lv%d", level);
+			G_Text(buf, x + slotW * 0.5f, slotY + slotH * 0.5f + 13.0f, 16.0f,
+				(level >= MAX_WEAPON_LEVEL) ? Col(255, 210, 80, 255) : Col(190, 190, 190, 255), AL_CENTER);
+		}
+	}
+
+	// ----- top centre: boss health bar (wave 20) -----
+	const Zombie* boss = FindBoss();
+	if (boss)
+	{
+		const float bossW = 640.0f, bossH = 24.0f;
+		float bossX = (screenW - bossW) * 0.5f;
+		float bossY = 46.0f;
+		float bossRatio = CP_Math_ClampFloat(boss->hp / boss->maxHp, 0.0f, 1.0f);
+
+		G_Text(BOSS_NAME, screenW * 0.5f, bossY - 20.0f, 26.0f, Col(220, 150, 255, 255), AL_CENTER);
+		G_Rect(bossX - 4.0f, bossY - 4.0f, bossW + 8.0f, bossH + 8.0f, Col(0, 0, 0, 200));
+		G_Rect(bossX, bossY, bossW * bossRatio, bossH, Col(170, 40, 200, 255));
+		snprintf(buf, sizeof(buf), "%.0f / %.0f", boss->hp, boss->maxHp);
+		G_Text(buf, screenW * 0.5f, bossY + bossH * 0.5f, 18.0f, Col(255, 255, 255, 255), AL_CENTER);
 	}
 
 	// Render the active weapon name, its cost description, and the exact HP cost per shot at the bottom center of the screen
@@ -510,54 +570,34 @@ static void DrawPickups(void)
 /* =========================================================
    Loot: what a zombie leaves behind when it dies
    ========================================================= */
-// True if a weapon pickup is already lying on the ground (so we never drop two at once).
-static bool WeaponPickupOnGround(void)
-{
-	for (int i = 0; i < MAX_PICKUPS; ++i)
-	{
-		if (s_pickups[i].active && s_pickups[i].type == PICK_WEAPON) return true;
-	}
-	return false;
-}
-
+// (zombies no longer drop guns: new guns are picked on the upgrade screen every 3 waves)
 static void DropLoot(CP_Vector pos, ZombieType type)
 {
 	float roll = CP_Random_RangeFloat(0.0f, 1.0f);
 
-	// rare: a gun you don't own yet (picked at random from the ones you're missing).
-	// Nudged aside so it doesn't hide under other drops.
-	if (!WeaponPickupOnGround() && CP_Random_RangeFloat(0.0f, 1.0f) < ((type == Z_BRUTE) ? WEAPON_DROP_BRUTE : WEAPON_DROP_OTHER))
-	{
-		WeaponType missing[W_COUNT];
-		int missingCount = 0;
-		for (int w = 0; w < W_COUNT; ++w)
-		{
-			if (!player.owned[w]) missing[missingCount++] = (WeaponType)w;
-		}
+	// heals drop more when you're in trouble (see the DROP_ defines at the top)
+	bool critical = (player.hp <= DROP_CRITICAL_HP);   // medkits / bandages back to full rate
+	bool low      = (player.hp <= DROP_LOW_HP);        // more blood drops
 
-		if (missingCount > 0)
-		{
-			Pickup* gun = SpawnPickup(PICK_WEAPON, CP_Vector_Set(pos.x + CP_Random_RangeFloat(-20.0f, 20.0f),
-				pos.y + CP_Random_RangeFloat(-20.0f, 20.0f)));
-			int pick = (int)CP_Random_RangeInt(0, (unsigned int)(missingCount - 1));
-			if (pick >= missingCount) pick = missingCount - 1;   // stay inside the list
-			if (gun) gun->weapon = missing[pick];
-		}
-	}
-
-	// brutes always drop a real heal (medkit or bandage), nudged aside so it doesn't sit on top of the normal drop
-	if (type == Z_BRUTE)
+	// brutes may drop a real heal (medkit or bandage), nudged aside so it doesn't sit on top of the normal drop
+	float bruteHealChance = critical ? DROP_BRUTE_HEAL_CRITICAL : DROP_BRUTE_HEAL;
+	if (type == Z_BRUTE && CP_Random_RangeFloat(0.0f, 1.0f) < bruteHealChance)
 	{
 		CP_Vector nudged = CP_Vector_Set(pos.x + CP_Random_RangeFloat(-14.0f, 14.0f),
 			pos.y + CP_Random_RangeFloat(-14.0f, 14.0f));
 		SpawnPickup((CP_Random_RangeFloat(0.0f, 1.0f) < 0.5f) ? PICK_MEDKIT : PICK_BANDAGE, nudged);
 	}
 
-	// drop chances (tune these later for the Drop Rates task)
-	if (roll < 0.03f) SpawnPickup(PICK_BLOODLUST, pos);   //  3%  rare
-	else if (roll < 0.08f) SpawnPickup(PICK_MEDKIT, pos);      //  5%
-	else if (roll < 0.14f) SpawnPickup(PICK_BANDAGE, pos);     //  6%
-	else if (roll < 0.54f) SpawnPickup(PICK_BLOOD, pos);       // 40%  most common
+	// one roll picks at most one normal drop; each chance stacks on top of the one before it
+	float bloodlustUpTo = DROP_BLOODLUST;
+	float medkitUpTo    = bloodlustUpTo + (critical ? DROP_MEDKIT_CRITICAL : DROP_MEDKIT);
+	float bandageUpTo   = medkitUpTo + (critical ? DROP_BANDAGE_CRITICAL : DROP_BANDAGE);
+	float bloodUpTo     = bandageUpTo + (low ? DROP_BLOOD_LOW : DROP_BLOOD);
+
+	if (roll < bloodlustUpTo)    SpawnPickup(PICK_BLOODLUST, pos);
+	else if (roll < medkitUpTo)  SpawnPickup(PICK_MEDKIT, pos);
+	else if (roll < bandageUpTo) SpawnPickup(PICK_BANDAGE, pos);
+	else if (roll < bloodUpTo)   SpawnPickup(PICK_BLOOD, pos);
 	// otherwise nothing drops
 }
 
@@ -566,8 +606,50 @@ static void DropLoot(CP_Vector pos, ZombieType type)
      Ctrl + 1-5  drop that gun's pickup just in front of you
      Ctrl + L    unlock every gun and equip the health laser
      Ctrl + H    refill your HP to max
+     Ctrl + =    level up the gun you're holding (Ctrl + - levels it down)
+     Ctrl + U    open the "choose an upgrade" screen now
+     Ctrl + N    clear this wave (counts as beaten: reward + upgrade cards every 3rd wave, with a very short break)
+     Ctrl + B    jump straight to the wave 20 boss (no upgrade cards on the way)
    ========================================================= */
 #define CHEAT_DROP_DISTANCE   70.0f   // how far in front of you a cheat gun pickup lands
+
+// Ctrl + N: wipes out this wave (zombies on screen and the ones still to spawn), so the normal
+// "wave cleared" step runs: the reward and, every 3rd wave, the upgrade cards.
+// The break and the next wave banner are cut very short, so you can tap it to race through waves.
+static void CheatClearWave(void)
+{
+	s_cheatSkipping = true;
+	if (s_waveClearTimer > 0.0f)   // already in the break: just cut it short
+	{
+		if (s_waveClearTimer > CHEAT_SKIP_BREAK) s_waveClearTimer = CHEAT_SKIP_BREAK;
+		return;
+	}
+	for (int i = 0; i < MAX_ZOMBIES; ++i) s_zombies[i].active = false;
+	s_toSpawn = 0;
+	s_waveIntroTimer = 0.0f;
+	SpawnText(player.position, "WAVE SKIPPED", 255, 255, 255);
+}
+
+// Ctrl + B: removes every zombie and starts wave "wave" straight away (skips any upgrade cards in between).
+static void CheatJumpToWave(int wave)
+{
+	ResetZombies();
+	s_wave = wave - 1;   // StartWave adds 1
+	StartWave();
+}
+
+static void CheatChangeGunLevel(int change)
+{
+	WeaponType w = player.weapon;
+	int level = player.gunLevel[w] + change;
+	if (level < 1) level = 1;
+	if (level > MAX_WEAPON_LEVEL) level = MAX_WEAPON_LEVEL;
+	player.gunLevel[w] = level;
+
+	char buf[48];
+	snprintf(buf, sizeof(buf), "%s Lv%d", GetWeaponName(w), level);
+	SpawnText(player.position, buf, 255, 255, 255);
+}
 
 static void HandleCheatKeys(void)
 {
@@ -597,6 +679,17 @@ static void HandleCheatKeys(void)
 		player.hp = player.maxHp;
 		SpawnText(player.position, "FULL HP", 120, 255, 140);
 	}
+
+	if (CP_Input_KeyTriggered(KEY_EQUAL) || CP_Input_KeyTriggered(KEY_KP_ADD))      CheatChangeGunLevel(+1);
+	if (CP_Input_KeyTriggered(KEY_MINUS) || CP_Input_KeyTriggered(KEY_KP_SUBTRACT)) CheatChangeGunLevel(-1);
+
+	if (CP_Input_KeyTriggered(KEY_U) && !OpenUpgradeScreen(false))
+	{
+		SpawnText(player.position, "NOTHING TO UPGRADE", 200, 200, 200);
+	}
+
+	if (CP_Input_KeyTriggered(KEY_N) && s_wave < FINAL_WAVE) CheatClearWave();
+	if (CP_Input_KeyTriggered(KEY_B))                         CheatJumpToWave(FINAL_WAVE);
 }
 
 // Called the moment a zombie dies (index = its slot in s_zombies, killedBy = the gun that did it):
@@ -605,8 +698,8 @@ static void OnZombieKilled(int index, WeaponType killedBy)
 {
 	DropLoot(s_zombies[index].pos, s_zombies[index].type);
 
-	// blood rain: every zombie a blood bomb kills always drops a blood heal
-	if (killedBy == W_BLOOD_BOMB)
+	// blood rain: zombies a blood bomb kills may drop a blood heal (20% / 40% / 60% / 100% by bomb level)
+	if (killedBy == W_BLOOD_BOMB && CP_Random_RangeFloat(0.0f, 1.0f) < GetBombBloodRainChance())
 	{
 		SpawnPickup(PICK_BLOOD, CP_Vector_Set(s_zombies[index].pos.x + CP_Random_RangeFloat(-10.0f, 10.0f),
 			s_zombies[index].pos.y + CP_Random_RangeFloat(-10.0f, 10.0f)));
@@ -628,10 +721,12 @@ static void StartWave(void)
 {
 	s_wave++;
 	// Wave 1: 8 zombies, Wave 2: 12 zombies, Wave 3: 16 zombies...
-	s_toSpawn = 4 + (4 * s_wave);
+	// The final wave is just the boss.
+	s_toSpawn = (s_wave >= FINAL_WAVE) ? 1 : 4 + (4 * s_wave);
 	s_spawnTimer = 0.0f;
 	s_waveClearTimer = 0.0f;
-	s_waveIntroTimer = WAVE_INTRO_TIME;   // <-- add this
+	s_waveIntroTimer = s_cheatSkipping ? CHEAT_SKIP_INTRO : WAVE_INTRO_TIME;
+	s_cheatSkipping = false;
 }
 
 static void UpdateWave(float deltaTime)
@@ -651,7 +746,8 @@ static void UpdateWave(float deltaTime)
 		s_spawnTimer -= deltaTime;
 		if (s_spawnTimer <= 0.0f)
 		{
-			SpawnZombie(s_wave);   // zombie.c, scaled to the current wave
+			if (s_wave >= FINAL_WAVE) SpawnBoss();      // zombie.c: wave 20 is the boss
+			else                      SpawnZombie(s_wave);   // zombie.c, scaled to the current wave
 			s_toSpawn--;
 			s_spawnTimer = 1.0f; // 1 second between each zombie spawn
 		}
@@ -664,14 +760,16 @@ static void UpdateWave(float deltaTime)
 			// Reward player for completing the wave
 			player.maxHp += 5.0f;
 			player.hp = CP_Math_ClampFloat(player.hp + 25.0f, 0.0f, player.maxHp);
-			s_waveClearTimer = 3.0f; // 3 seconds break before next wave
+			s_waveClearTimer = s_cheatSkipping ? CHEAT_SKIP_BREAK : WAVE_BREAK_TIME; // short break before next wave
 		}
 		else
 		{
 			s_waveClearTimer -= deltaTime;
 			if (s_waveClearTimer <= 0.0f)
 			{
-				StartWave(); // Start next wave!
+				if (s_wave >= FINAL_WAVE) GameOver_Start(true);   // boss is dead: you win!
+				else if (s_wave % UPGRADE_EVERY_WAVES == 0 && OpenUpgradeScreen(true)) { /* the next wave starts once a gun is picked */ }
+				else StartWave(); // Start next wave!
 			}
 		}
 	}
@@ -699,10 +797,16 @@ static void DrawWaveIntro(void)
 	int alpha = (int)(fade * 255.0f);
 
 	char buf[64];
-	snprintf(buf, sizeof(buf), "WAVE %d", s_wave);
+	if (s_wave >= FINAL_WAVE) snprintf(buf, sizeof(buf), "FINAL WAVE");
+	else                      snprintf(buf, sizeof(buf), "WAVE %d", s_wave);
 	G_Text(buf, windowWidth * 0.5f, windowHeight * 0.28f, 110.0f, Col(255, 230, 120, alpha), AL_CENTER);
 
-	if (s_wave == 1)
+	if (s_wave >= FINAL_WAVE)
+	{
+		snprintf(buf, sizeof(buf), "%s is coming. Kill it to escape.", BOSS_NAME);
+		G_Text(buf, windowWidth * 0.5f, windowHeight * 0.28f + 80.0f, 30.0f, Col(220, 150, 255, alpha), AL_CENTER);
+	}
+	else if (s_wave == 1)
 	{
 		G_Text("Every bullet costs your blood. Kill zombies and grab drops to live.",
 			windowWidth * 0.5f, windowHeight * 0.28f + 80.0f, 30.0f, Col(230, 230, 230, alpha), AL_CENTER);
@@ -735,6 +839,189 @@ static void GoToMenu(void)
 }
 
 /* =========================================================
+   Upgrade choice: after every 3rd wave you get ONE pick:
+     - an UPGRADE card for each gun you own (raises it one level, Lv4 = evolved), or
+     - a NEW GUN card for each gun you don't own yet (unlocks it at Lv1).
+   Upgrade cards are on the left, new gun cards on the right.
+   The game is frozen while the cards are showing.
+   ========================================================= */
+#define UPGRADE_CARD_W       270.0f
+#define UPGRADE_CARD_H       230.0f
+#define UPGRADE_CARD_GAP     20.0f
+#define UPGRADE_GROUP_GAP    50.0f   // extra space between the upgrade cards and the new gun cards
+#define NEW_GUN_RGB          90, 200, 255   // border / labels of the new gun cards
+
+static bool s_upgradeStartsWave = false;   // true = start the next wave once a card is picked (false when opened by the cheat key)
+static WeaponType s_upgradeChoices[W_COUNT];   // owned guns first, then the ones you don't own
+static int        s_upgradeChoiceCount = 0;
+static int        s_upgradeOwnedCount = 0;     // how many of the choices are guns you own (upgrade cards)
+
+// Opens the cards. Returns false (and doesn't open) if there is nothing to pick:
+// every gun is owned and maxed.
+static bool OpenUpgradeScreen(bool startWaveAfter)
+{
+	s_upgradeChoiceCount = 0;
+	bool anyPick = false;
+	for (int w = 0; w < W_COUNT; ++w)   // upgrade cards first...
+	{
+		if (!player.owned[w]) continue;
+		s_upgradeChoices[s_upgradeChoiceCount++] = (WeaponType)w;
+		if (GetWeaponLevel((WeaponType)w) < MAX_WEAPON_LEVEL) anyPick = true;
+	}
+	s_upgradeOwnedCount = s_upgradeChoiceCount;
+	for (int w = 0; w < W_COUNT; ++w)   // ...then new gun cards
+	{
+		if (player.owned[w]) continue;
+		s_upgradeChoices[s_upgradeChoiceCount++] = (WeaponType)w;
+		anyPick = true;
+	}
+	if (!anyPick) return false;
+
+	CancelCharging();   // weapon.c: don't leave a blood bomb charging under the cards
+	s_upgradeOpen = true;
+	s_upgradeTimer = 0.0f;
+	s_upgradeStartsWave = startWaveAfter;
+	return true;
+}
+
+static bool IsNewGunCard(int i) { return i >= s_upgradeOwnedCount; }
+
+// The extra group gap only exists when there are both upgrade cards and new gun cards.
+static float UpgradeGroupGap(void)
+{
+	return (s_upgradeOwnedCount > 0 && s_upgradeOwnedCount < s_upgradeChoiceCount) ? UPGRADE_GROUP_GAP : 0.0f;
+}
+
+// Top-left corner of card number i.
+static float UpgradeCardX(int i)
+{
+	float totalW = UPGRADE_CARD_W * (float)s_upgradeChoiceCount + UPGRADE_CARD_GAP * (float)(s_upgradeChoiceCount - 1) + UpgradeGroupGap();
+	float x = (windowWidth - totalW) * 0.5f + (UPGRADE_CARD_W + UPGRADE_CARD_GAP) * (float)i;
+	if (IsNewGunCard(i)) x += UpgradeGroupGap();
+	return x;
+}
+static float UpgradeCardY(void) { return windowHeight * 0.38f; }
+
+static bool MouseOverUpgradeCard(int i)
+{
+	float mx = CP_Input_GetMouseX(), my = CP_Input_GetMouseY();
+	float x = UpgradeCardX(i), y = UpgradeCardY();
+	return mx >= x && mx <= x + UPGRADE_CARD_W && my >= y && my <= y + UPGRADE_CARD_H;
+}
+
+static void DrawUpgradeScreen(void)
+{
+	G_Rect(0.0f, 0.0f, windowWidth, windowHeight, Col(0, 0, 0, 175));
+	G_Text("CHOOSE ONE", windowWidth * 0.5f, windowHeight * 0.20f, 80.0f, Col(255, 230, 120, 255), AL_CENTER);
+	G_Text("Upgrade a gun you have (Lv4 evolves it), or take a new gun.", windowWidth * 0.5f, windowHeight * 0.20f + 62.0f, 26.0f, Col(220, 220, 220, 255), AL_CENTER);
+
+	// group labels above each set of cards
+	float labelY = UpgradeCardY() - 30.0f;
+	if (s_upgradeOwnedCount > 0)
+	{
+		float left = UpgradeCardX(0), right = UpgradeCardX(s_upgradeOwnedCount - 1) + UPGRADE_CARD_W;
+		G_Text("UPGRADE", (left + right) * 0.5f, labelY, 26.0f, Col(255, 230, 120, 255), AL_CENTER);
+	}
+	if (s_upgradeOwnedCount < s_upgradeChoiceCount)
+	{
+		float left = UpgradeCardX(s_upgradeOwnedCount), right = UpgradeCardX(s_upgradeChoiceCount - 1) + UPGRADE_CARD_W;
+		G_Text("NEW GUN", (left + right) * 0.5f, labelY, 26.0f, Col(NEW_GUN_RGB, 255), AL_CENTER);
+	}
+
+	char buf[64];
+	char lines[UPGRADE_TEXT_LINES][UPGRADE_TEXT_LEN];
+	for (int i = 0; i < s_upgradeChoiceCount; ++i)
+	{
+		WeaponType w = s_upgradeChoices[i];
+		bool isNew = IsNewGunCard(i);
+		int level = GetWeaponLevel(w);
+		bool maxed = !isNew && (level >= MAX_WEAPON_LEVEL);
+		bool hover = !maxed && MouseOverUpgradeCard(i);
+		float x = UpgradeCardX(i), y = UpgradeCardY();
+		float cx = x + UPGRADE_CARD_W * 0.5f;
+		CP_Color gunColor = maxed ? Col(110, 110, 110, 255) : GetWeaponColor(w, 255);
+		CP_Color borderColor = isNew ? Col(NEW_GUN_RGB, 255) : gunColor;   // new gun cards always have a blue border
+
+		// card: glow + coloured border when hovered (new gun cards keep a dim blue border so they read as a separate group)
+		if (hover) G_Rect(x - 10.0f, y - 10.0f, UPGRADE_CARD_W + 20.0f, UPGRADE_CARD_H + 20.0f, isNew ? Col(NEW_GUN_RGB, 60) : GetWeaponColor(w, 60));
+		G_Rect(x - 4.0f, y - 4.0f, UPGRADE_CARD_W + 8.0f, UPGRADE_CARD_H + 8.0f,
+			hover ? borderColor : (isNew ? Col(40, 90, 120, 255) : Col(70, 70, 70, 255)));
+		G_Rect(x, y, UPGRADE_CARD_W, UPGRADE_CARD_H, Col(20, 22, 20, 255));
+
+		G_Text(GetWeaponName(w), cx, y + 32.0f, 28.0f, gunColor, AL_CENTER);
+
+		if (isNew)
+		{
+			snprintf(buf, sizeof(buf), "NEW  -  Lv1  [%d]", (int)w + 1);
+			G_Text(buf, cx, y + 76.0f, 24.0f, Col(NEW_GUN_RGB, 255), AL_CENTER);
+			GetNewWeaponText(w, lines);
+			for (int l = 0; l < UPGRADE_TEXT_LINES; ++l)
+			{
+				if (lines[l][0] == '\0') continue;
+				G_Text(lines[l], cx, y + 124.0f + 30.0f * (float)l, 19.0f, Col(210, 210, 210, 255), AL_CENTER);
+			}
+			continue;
+		}
+
+		if (maxed)
+		{
+			G_Text("MAX LEVEL", cx, y + 80.0f, 26.0f, Col(255, 210, 80, 255), AL_CENTER);
+			continue;
+		}
+
+		bool evolves = (level + 1 == MAX_WEAPON_LEVEL);
+		snprintf(buf, sizeof(buf), "Lv%d  ->  Lv%d", level, level + 1);
+		G_Text(buf, cx, y + 76.0f, 26.0f, evolves ? Col(255, 210, 80, 255) : Col(255, 255, 255, 255), AL_CENTER);
+
+		GetUpgradeText(w, level + 1, lines);
+		for (int l = 0; l < UPGRADE_TEXT_LINES; ++l)
+		{
+			if (lines[l][0] == '\0') continue;
+			bool headline = evolves && l == 0;   // "EVOLVES: ..." stands out
+			G_Text(lines[l], cx, y + 124.0f + 30.0f * (float)l, headline ? 21.0f : 19.0f,
+				headline ? Col(255, 210, 80, 255) : Col(210, 210, 210, 255), AL_CENTER);
+		}
+	}
+
+	DrawMouseCrosshair();
+}
+
+static void UpdateUpgradeScreen(float deltaTime)
+{
+	s_upgradeTimer += deltaTime;
+	if (s_upgradeTimer < UPGRADE_CLICK_DELAY || !CP_Input_MouseTriggered(MOUSE_BUTTON_LEFT)) return;
+
+	for (int i = 0; i < s_upgradeChoiceCount; ++i)
+	{
+		WeaponType w = s_upgradeChoices[i];
+		bool isNew = IsNewGunCard(i);
+		if (!MouseOverUpgradeCard(i)) continue;
+		if (!isNew && GetWeaponLevel(w) >= MAX_WEAPON_LEVEL) continue;   // maxed cards can't be picked
+
+		char buf[48];
+		if (isNew)
+		{
+			player.owned[w] = true;     // unlock it for good (its number key)
+			player.gunLevel[w] = 1;
+			snprintf(buf, sizeof(buf), "%s! [%d]", GetWeaponName(w), (int)w + 1);
+		}
+		else
+		{
+			player.gunLevel[w] = GetWeaponLevel(w) + 1;
+			snprintf(buf, sizeof(buf), "%s Lv%d!", GetWeaponName(w), player.gunLevel[w]);
+		}
+		player.weapon = w;   // equip the gun you just picked
+
+		CP_Color c = GetWeaponColor(w, 255);
+		SpawnText(player.position, buf, c.r, c.g, c.b);
+
+		s_upgradeOpen = false;
+		if (s_upgradeStartsWave) StartWave();
+		return;
+	}
+}
+
+/* =========================================================
    [GAME OVER] START  -- everything for the game over screen
    ========================================================= */
 
@@ -745,10 +1032,12 @@ static void GoToMenu(void)
 #define GO_POINTS_WALKER   10       // points for killing a walker
 #define GO_POINTS_RUNNER   15       // points for killing a runner
 #define GO_POINTS_BRUTE    50       // points for killing a brute
+#define GO_POINTS_BOSS     2000     // points for killing the wave 20 boss
 #define GO_WAVE_BONUS      100      // wave cleared bonus = this number x the wave number
 
 // ---- the game over screen ----
 static bool  s_gameOver = false;    // true while the game over screen is showing
+static bool  s_won = false;         // true = it's the victory screen (the boss is dead), not a death
 static float s_goTimer = 0.0f;      // seconds since the player died
 
 // where the two buttons are (x, y = top-left corner). Worked out once, in GameOver_Start
@@ -771,6 +1060,7 @@ static float      s_goLastClearTimer = 0.0f;   // last frame's s_waveClearTimer
 static void GameOver_Reset(void)
 {
 	s_gameOver = false;
+	s_won = false;
 	s_score = 0;
 	s_kills = 0;
 	s_goLastClearTimer = 0.0f;
@@ -792,7 +1082,8 @@ static void GameOver_CountScore(void)
 		if (hadZombieLastFrame && !sameZombieStillHere)
 		{
 			s_kills++;
-			if (s_goLastType[i] == Z_BRUTE)       s_score += GO_POINTS_BRUTE;
+			if (s_goLastType[i] == Z_BOSS)        s_score += GO_POINTS_BOSS;
+			else if (s_goLastType[i] == Z_BRUTE)  s_score += GO_POINTS_BRUTE;
 			else if (s_goLastType[i] == Z_RUNNER) s_score += GO_POINTS_RUNNER;
 			else                                  s_score += GO_POINTS_WALKER;
 		}
@@ -850,10 +1141,11 @@ static void GameOver_DrawButton(float x, float y, const char* label)
 	G_Text(label, x + GO_BUTTON_W / 2.0f, y + GO_BUTTON_H / 2.0f, 42.0f, Col(255, 255, 255, 255), AL_CENTER);
 }
 
-// Called once, the moment the player dies.
-static void GameOver_Start(void)
+// Called once, the moment the player dies (won = false) or the boss is killed (won = true).
+static void GameOver_Start(bool won)
 {
 	s_gameOver = true;
+	s_won = won;
 	s_goTimer = 0.0f;
 	Sfx_StopBombCharge();    // died mid-charge: don't let the charge-up keep playing over the game over screen
 	s_goWave = s_wave;       // remember which wave we died on
@@ -877,13 +1169,15 @@ static void GameOver_Draw(void)
 	// 1. a dark see-through layer over the whole game
 	G_Rect(0.0f, 0.0f, windowWidth, windowHeight, Col(0, 0, 0, 170));
 
-	// 2. the title: a black shadow first, then the red words on top of it
-	G_Text("GAME OVER", centerX + 4.0f, titleY + 4.0f, 120.0f, Col(0, 0, 0, 200), AL_CENTER);
-	G_Text("GAME OVER", centerX, titleY, 120.0f, Col(220, 30, 30, 255), AL_CENTER);
+	// 2. the title: a black shadow first, then the words on top of it (red for a death, gold for a win)
+	const char* title = s_won ? "YOU SURVIVED" : "GAME OVER";
+	G_Text(title, centerX + 4.0f, titleY + 4.0f, 120.0f, Col(0, 0, 0, 200), AL_CENTER);
+	G_Text(title, centerX, titleY, 120.0f, s_won ? Col(255, 210, 80, 255) : Col(220, 30, 30, 255), AL_CENTER);
 
 	// 3. wave, kills and score (the %d is replaced by each number, in order)
 	char text[100];
-	snprintf(text, sizeof(text), "Reached wave %d          Kills: %d          Score: %d", s_goWave, s_kills, s_score);
+	if (s_won) snprintf(text, sizeof(text), "%s is dead!          Kills: %d          Score: %d", BOSS_NAME, s_kills, s_score);
+	else       snprintf(text, sizeof(text), "Reached wave %d          Kills: %d          Score: %d", s_goWave, s_kills, s_score);
 	G_Text(text, centerX, titleY + 90.0f, 36.0f, Col(230, 230, 230, 255), AL_CENTER);
 
 	snprintf(text, sizeof(text), "Best this session:  wave %d  /  score %d", s_bestWave, s_bestScore);
@@ -928,6 +1222,8 @@ void Game_Init(void)
 	Font_EnsureLoaded();   // the menu frees its font on exit, so reload it for the pause text
 	Sfx_Load();            // sfx.c: loads the sound effects (skips any already loaded, e.g. on TRY AGAIN)
 	s_paused = false;      // always start a new game unpaused
+	s_upgradeOpen = false; // no upgrade cards left over from the last run
+	s_cheatSkipping = false;
 	GameOver_Reset();      // [GAME OVER] new run = score back to 0, game over screen hidden
 
 	windowWidth = (float)CP_System_GetWindowWidth();
@@ -950,6 +1246,7 @@ void Game_Init(void)
 	for (int i = 0; i < W_COUNT; ++i)
 	{
 		player.owned[i] = false;
+		player.gunLevel[i] = 1;   // every gun starts at Lv1 (upgraded every 3 waves)
 	}
 	player.owned[W_PISTOL] = true;   // Starter weapon
 	player.weapon = W_PISTOL;
@@ -991,7 +1288,7 @@ void Game_Update(void)
 	if (!s_gameOver)
 	{
 		GameOver_CountScore();                        // keep the score up to date
-		if (player.hp <= 0.0f) GameOver_Start();      // HP is 0 -> the player died -> show the game over screen
+		if (player.hp <= 0.0f) GameOver_Start(false); // HP is 0 -> the player died -> show the game over screen
 	}
 	if (s_gameOver)
 	{
@@ -1001,6 +1298,15 @@ void Game_Update(void)
 		return;                                       // 4. skip the normal update (this is what freezes the game)
 	}
 	// [GAME OVER] END -----------------------------------------------------------
+
+	// "choose an upgrade" cards: the game stays frozen until a gun is picked
+	if (s_upgradeOpen)
+	{
+		Render();
+		DrawUpgradeScreen();
+		UpdateUpgradeScreen(deltaTime);
+		return;
+	}
 
 	// ESC toggles pause; while paused, M goes back to the main menu
 	if (CP_Input_KeyTriggered(KEY_ESCAPE))
@@ -1017,7 +1323,7 @@ void Game_Update(void)
 	// only advance the game when not paused (Render below still draws the frozen frame)
 	if (!s_paused)
 	{
-		HandleCheatKeys();       // TEMP playtesting cheats (Ctrl + 1-5 / L / H)
+		HandleCheatKeys();       // TEMP playtesting cheats (Ctrl + 1-5 / L / H / = / - / U / N / B)
 		UpdatePlayerMovementAndAim(deltaTime);
 		UpdateZombies(deltaTime);
 		UpdateShots(deltaTime, OnZombieKilled);   // weapon.c: move bullets/lasers, hit zombies, OnZombieKilled handles each kill

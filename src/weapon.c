@@ -6,7 +6,8 @@
 //			spawning, moving, hit-testing and drawing every shot
 //			(pistol / last stand bullets, health laser beams,
 //			the bloodrang and blood bombs). All the numbers live
-//			in weapon.h.
+//			in weapon.h. Each gun's stats depend on its level
+//			(player.gunLevel); Lv4 adds an evolved ability.
 //
 // Copyright © 2026 DigiPen, All rights reserved.
 //---------------------------------------------------------
@@ -25,9 +26,21 @@
 #define BOMB_OFFSCREEN_MARGIN     40.0f
 #define PI_F                      3.14159265f
 
+// per-level stat tables, filled from the _LV lists in weapon.h
+static const float s_pistolDamage[MAX_WEAPON_LEVEL]     = PISTOL_DAMAGE_LV;
+static const float s_pistolDelay[MAX_WEAPON_LEVEL]      = PISTOL_FIRE_DELAY_LV;
+static const float s_pistolCost[MAX_WEAPON_LEVEL]       = PISTOL_COST_LV;
+static const float s_laserMultiplier[MAX_WEAPON_LEVEL]  = LASER_DAMAGE_MULTIPLIER_LV;
+static const float s_rangDamage[MAX_WEAPON_LEVEL]       = RANG_DAMAGE_LV;
+static const float s_rangRefund[MAX_WEAPON_LEVEL]       = RANG_REFUND_LV;
+static const float s_bombDamagePerHp[MAX_WEAPON_LEVEL]  = BOMB_DAMAGE_PER_HP_LV;
+static const float s_bombBloodRain[MAX_WEAPON_LEVEL]    = BOMB_BLOOD_RAIN_LV;
+static const float s_lastStandMin[MAX_WEAPON_LEVEL]     = LAST_STAND_MIN_DAMAGE_LV;
+static const float s_lastStandMax[MAX_WEAPON_LEVEL]     = LAST_STAND_MAX_DAMAGE_LV;
+
 static Bullet    s_bullets[MAX_BULLETS];
 static Laser     s_lasers[MAX_LASERS];
-static Bloodrang s_rang;                  // only one boomerang can be out at a time
+static Bloodrang s_rangs[MAX_RANGS];      // one boomerang at a time (two at Lv4)
 static int       s_rangStacks = 0;        // damage boost stacks earned by catching the bloodrang
 static BloodBomb s_bombs[MAX_BOMBS];
 static Blast     s_blasts[MAX_BLASTS];
@@ -39,6 +52,22 @@ static float s_chargeStored = 0.0f;       // HP poured in so far
 static float s_chargeCap = 0.0f;          // the most it can hold (40% of HP when charging started)
 
 /* =========================================================
+   Levels
+   ========================================================= */
+
+int GetWeaponLevel(WeaponType w)
+{
+	if (w < 0 || w >= W_COUNT) return 1;
+	int level = player.gunLevel[w];
+	if (level < 1) level = 1;
+	if (level > MAX_WEAPON_LEVEL) level = MAX_WEAPON_LEVEL;
+	return level;
+}
+
+static int  LevelIndex(WeaponType w) { return GetWeaponLevel(w) - 1; }   // 0-based, for the stat tables
+static bool IsEvolved(WeaponType w)  { return GetWeaponLevel(w) >= MAX_WEAPON_LEVEL; }
+
+/* =========================================================
    Small helpers
    ========================================================= */
 
@@ -48,15 +77,26 @@ static float MissingHpFraction(void)
 	return 1.0f - CP_Math_ClampFloat(player.hp / player.maxHp, 0.0f, 1.0f);
 }
 
-static float LastStandDamage(void)
+static float LastStandMinDamage(void) { return s_lastStandMin[LevelIndex(W_LAST_STAND)]; }
+static float LastStandMaxDamage(void) { return s_lastStandMax[LevelIndex(W_LAST_STAND)]; }
+
+// Exponential curve: 0 at full HP -> 1 near death, staying low for most of the bar and shooting up at the end.
+// (e^(curve * t) - 1) / (e^curve - 1), where t = how much HP is missing (0..1).
+// With curve 4.5: half HP (green/yellow edge) = 0.10, 37.5% HP = 0.18, 25% HP (red edge) = 0.32, 10% HP = 0.64.
+static float LastStandPower(void)
 {
-	return LAST_STAND_MIN_DAMAGE + (LAST_STAND_MAX_DAMAGE - LAST_STAND_MIN_DAMAGE) * MissingHpFraction();
+	return (expf(LAST_STAND_CURVE * MissingHpFraction()) - 1.0f) / (expf(LAST_STAND_CURVE) - 1.0f);
 }
 
-// small at full HP -> big near death
+static float LastStandDamage(void)
+{
+	return LastStandMinDamage() + (LastStandMaxDamage() - LastStandMinDamage()) * LastStandPower();
+}
+
+// small at full HP -> big near death (on the same curve, so the bullets visibly swell in the red)
 static float LastStandRadius(void)
 {
-	return LAST_STAND_MIN_RADIUS + (LAST_STAND_MAX_RADIUS - LAST_STAND_MIN_RADIUS) * MissingHpFraction();
+	return LAST_STAND_MIN_RADIUS + (LAST_STAND_MAX_RADIUS - LAST_STAND_MIN_RADIUS) * LastStandPower();
 }
 
 // pale pink at full HP -> deep blood red near death
@@ -66,12 +106,24 @@ static CP_Color LastStandColor(int alpha)
 	return Col((int)(255.0f - 55.0f * t), (int)(190.0f - 190.0f * t), (int)(170.0f - 150.0f * t), alpha);
 }
 
-static float RangDamageWithBoost(void)
+static float PistolDamage(void)     { return s_pistolDamage[LevelIndex(W_PISTOL)]; }
+static float LaserMultiplier(void)  { return s_laserMultiplier[LevelIndex(W_HEALTH_LASER)]; }
+static float BombDamagePerHp(void)  { return s_bombDamagePerHp[LevelIndex(W_BLOOD_BOMB)]; }
+static float RangRefund(void)       { return s_rangRefund[LevelIndex(W_BLOODRANG)]; }
+static int   RangMaxStacks(void)   { return IsEvolved(W_BLOODRANG) ? RANG_EVO_MAX_STACKS : RANG_MAX_STACKS; }
+static int   RangThrowCount(void)   { return IsEvolved(W_BLOODRANG) ? RANG_EVO_COUNT : 1; }
+
+// stacks earned, but never more than this level allows (matters if the level is lowered by a cheat)
+static int RangStacks(void)
 {
-	return RANG_DAMAGE * (1.0f + RANG_BOOST_PER_STACK * (float)s_rangStacks);
+	return (s_rangStacks > RangMaxStacks()) ? RangMaxStacks() : s_rangStacks;
 }
 
-static float BombDamage(float stored) { return stored * BOMB_DAMAGE_PER_HP; }
+static float RangDamageWithBoost(void)
+{
+	return s_rangDamage[LevelIndex(W_BLOODRANG)] * (1.0f + RANG_BOOST_PER_STACK * (float)RangStacks());
+}
+
 static float BombBlastRadius(float stored) { return BOMB_BASE_RADIUS + stored * BOMB_RADIUS_PER_HP; }
 static float BombOrbRadius(float stored) { return BOMB_ORB_BASE_RADIUS + stored * BOMB_ORB_RADIUS_PER_HP; }
 
@@ -91,6 +143,22 @@ static void HealPlayer(float amount)
 	player.hp = CP_Math_ClampFloat(player.hp + amount, 0.0f, player.maxHp);
 }
 
+// direction turned by "angle" radians
+static CP_Vector RotateDirection(CP_Vector dir, float angle)
+{
+	float c = cosf(angle), s = sinf(angle);
+	return CP_Vector_Set(dir.x * c - dir.y * s, dir.x * s + dir.y * c);
+}
+
+static bool AnyRangActive(void)
+{
+	for (int i = 0; i < MAX_RANGS; ++i)
+	{
+		if (s_rangs[i].active) return true;
+	}
+	return false;
+}
+
 /* =========================================================
    Gun info
    ========================================================= */
@@ -100,11 +168,14 @@ float GetShotCost(WeaponType w)
 {
 	switch (w)
 	{
-	case W_PISTOL:       return PISTOL_COST;
+	case W_PISTOL:       return s_pistolCost[LevelIndex(W_PISTOL)];
 	case W_HEALTH_LASER: return player.hp * LASER_COST_PERCENT;   // a quarter of whatever you have now
-	case W_BLOODRANG:    return RANG_COST;
+	case W_BLOODRANG:    return RANG_COST * (float)RangThrowCount();
 	case W_BLOOD_BOMB:   return 0.0f;                             // paid while charging instead
-	case W_LAST_STAND:   return LAST_STAND_COST;
+	case W_LAST_STAND:
+		// at the lowest HP you can shoot from, the shot is free (so it never locks up near death)
+		if (player.hp - LAST_STAND_COST < MIN_HP_AFTER_SHOT) return 0.0f;
+		return LAST_STAND_COST;
 	default:             return 1.0f;
 	}
 }
@@ -113,24 +184,25 @@ float GetFireDelay(WeaponType w)
 {
 	switch (w)
 	{
-	case W_PISTOL:       return PISTOL_FIRE_DELAY;
+	case W_PISTOL:       return s_pistolDelay[LevelIndex(W_PISTOL)];
 	case W_HEALTH_LASER: return LASER_FIRE_DELAY;
 	case W_BLOODRANG:    return RANG_FIRE_DELAY;
 	case W_BLOOD_BOMB:   return BOMB_FIRE_DELAY;
 	case W_LAST_STAND:   return LAST_STAND_FIRE_DELAY;
-	default:             return PISTOL_FIRE_DELAY;
+	default:             return 0.25f;
 	}
 }
 
 const char* GetWeaponName(WeaponType w)
 {
+	bool evolved = IsEvolved(w);
 	switch (w)
 	{
-	case W_PISTOL:       return "PISTOL";
-	case W_HEALTH_LASER: return "HEALTH LASER";
-	case W_BLOODRANG:    return "BLOODRANG";
-	case W_BLOOD_BOMB:   return "BLOOD BOMB";
-	case W_LAST_STAND:   return "LAST STAND";
+	case W_PISTOL:       return evolved ? "TWIN FANG"      : "PISTOL";
+	case W_HEALTH_LASER: return evolved ? "LIFELINE LANCE" : "HEALTH LASER";
+	case W_BLOODRANG:    return evolved ? "TWIN RANG"      : "BLOODRANG";
+	case W_BLOOD_BOMB:   return evolved ? "BLOOD CLUSTER"  : "BLOOD BOMB";
+	case W_LAST_STAND:   return evolved ? "DEATH'S DOOR"   : "LAST STAND";
 	default:             return "???";
 	}
 }
@@ -151,35 +223,179 @@ CP_Color GetWeaponColor(WeaponType w, int alpha)
 // One line for the bottom of the HUD: what the gun does and what it costs right now.
 void GetWeaponHudText(WeaponType w, char* buf, size_t bufSize)
 {
+	int level = GetWeaponLevel(w);
+	const char* name = GetWeaponName(w);
+
 	switch (w)
 	{
 	case W_HEALTH_LASER:
-		snprintf(buf, bufSize, "[2] HEALTH LASER: damage = HP x %.1f, length = your health bar, costs %.0f%% HP  -  costs %.1f HP, deals %.0f now",
-			LASER_DAMAGE_MULTIPLIER, LASER_COST_PERCENT * 100.0f, GetShotCost(w), player.hp * LASER_DAMAGE_MULTIPLIER);
+		snprintf(buf, bufSize, "[2] %s Lv%d: damage = HP x %.2g, costs %.0f%% HP%s  -  costs %.1f HP, deals %.0f now",
+			name, level, LaserMultiplier(), LASER_COST_PERCENT * 100.0f,
+			IsEvolved(w) ? ", heals per hit" : "", GetShotCost(w), player.hp * LaserMultiplier());
 		break;
 	case W_BLOODRANG:
-		if (s_rang.active)
-			snprintf(buf, bufSize, "[3] BLOODRANG: catch it!  holds %.0f HP, hit %d zombie(s)  -  boost +%.0f%%",
-				s_rang.stored, s_rang.hits, RANG_BOOST_PER_STACK * 100.0f * (float)s_rangStacks);
+		if (AnyRangActive())
+		{
+			float stored = 0.0f;
+			int hits = 0;
+			for (int i = 0; i < MAX_RANGS; ++i)
+			{
+				if (!s_rangs[i].active) continue;
+				stored += s_rangs[i].stored;
+				hits += s_rangs[i].hits;
+			}
+			snprintf(buf, bufSize, "[3] %s Lv%d: catch it!  gives back %.0f HP, hit %d zombie(s)  -  boost +%.0f%%",
+				name, level, stored * RangRefund(), hits, RANG_BOOST_PER_STACK * 100.0f * (float)RangStacks());
+		}
 		else
-			snprintf(buf, bufSize, "[3] BLOODRANG: costs %.0f HP, catch it to get it back  -  boost +%.0f%% (%d/%d), deals %.0f",
-				RANG_COST, RANG_BOOST_PER_STACK * 100.0f * (float)s_rangStacks, s_rangStacks, RANG_MAX_STACKS, RangDamageWithBoost());
+			snprintf(buf, bufSize, "[3] %s Lv%d: costs %.0f HP, catch it to get %.0f%% back  -  boost +%.0f%% (%d/%d), deals %.0f",
+				name, level, GetShotCost(w), RangRefund() * 100.0f, RANG_BOOST_PER_STACK * 100.0f * (float)RangStacks(), RangStacks(), RangMaxStacks(), RangDamageWithBoost());
 		break;
 	case W_BLOOD_BOMB:
 		if (s_charging)
-			snprintf(buf, bufSize, "[4] BLOOD BOMB: charging %.0f / %.0f HP  -  blast deals %.0f", s_chargeStored, s_chargeCap, BombDamage(s_chargeStored));
+			snprintf(buf, bufSize, "[4] %s Lv%d: charging %.0f / %.0f HP  -  blast deals %.0f",
+				name, level, s_chargeStored, s_chargeCap, s_chargeStored * BombDamagePerHp());
 		else
-			snprintf(buf, bufSize, "[4] BLOOD BOMB: hold to pour HP in (up to %.0f%%), release to throw  -  %.1f damage per HP",
-				BOMB_MAX_CHARGE_PERCENT * 100.0f, BOMB_DAMAGE_PER_HP);
+			snprintf(buf, bufSize, "[4] %s Lv%d: hold to pour HP in (up to %.0f%%), release to throw  -  %.1f damage per HP",
+				name, level, BOMB_MAX_CHARGE_PERCENT * 100.0f, BombDamagePerHp());
 		break;
 	case W_LAST_STAND:
-		snprintf(buf, bufSize, "[5] LAST STAND: stronger the lower your HP  -  costs %.0f HP, deals %.0f now", LAST_STAND_COST, LastStandDamage());
+		if (GetShotCost(w) <= 0.0f)
+			snprintf(buf, bufSize, "[5] %s Lv%d: at death's door, shots are FREE  -  deals %.0f now",
+				name, level, LastStandDamage());
+		else
+			snprintf(buf, bufSize, "[5] %s Lv%d: stronger the lower your HP (up to %.0f)  -  costs %.0f HP, deals %.0f now",
+				name, level, LastStandMaxDamage(), LAST_STAND_COST, LastStandDamage());
 		break;
 	case W_PISTOL:
 	default:
-		snprintf(buf, bufSize, "[1] PISTOL: flat cost per shot  -  costs %.1f HP now", GetShotCost(w));
+		snprintf(buf, bufSize, "[1] %s Lv%d: %.0f damage, flat cost per shot  -  costs %.1f HP now",
+			name, level, PistolDamage(), GetShotCost(w));
 		break;
 	}
+}
+
+// What upgrading gun w to toLevel changes, as up to 3 short lines (for the upgrade cards).
+void GetUpgradeText(WeaponType w, int toLevel, char lines[UPGRADE_TEXT_LINES][UPGRADE_TEXT_LEN])
+{
+	for (int i = 0; i < UPGRADE_TEXT_LINES; ++i) lines[i][0] = '\0';
+	if (toLevel < 2 || toLevel > MAX_WEAPON_LEVEL) return;
+
+	int from = toLevel - 2;   // index of the current level in the stat tables
+	int to = toLevel - 1;
+	bool evolves = (toLevel == MAX_WEAPON_LEVEL);
+
+	switch (w)
+	{
+	case W_PISTOL:
+		if (evolves)
+		{
+			snprintf(lines[0], UPGRADE_TEXT_LEN, "EVOLVES: TWIN FANG");
+			snprintf(lines[1], UPGRADE_TEXT_LEN, "%d-bullet spread, %.0f dmg", PISTOL_EVO_BULLETS, s_pistolDamage[to]);
+			snprintf(lines[2], UPGRADE_TEXT_LEN, "Pierces %d, costs %.0f HP/shot", PISTOL_EVO_PIERCE, s_pistolCost[to]);
+		}
+		else
+		{
+			snprintf(lines[0], UPGRADE_TEXT_LEN, "Damage %.0f -> %.0f", s_pistolDamage[from], s_pistolDamage[to]);
+			snprintf(lines[1], UPGRADE_TEXT_LEN, "Shots/sec %.1f -> %.1f", 1.0f / s_pistolDelay[from], 1.0f / s_pistolDelay[to]);
+		}
+		break;
+	case W_HEALTH_LASER:
+		if (evolves)
+		{
+			snprintf(lines[0], UPGRADE_TEXT_LEN, "EVOLVES: LIFELINE LANCE");
+			snprintf(lines[1], UPGRADE_TEXT_LEN, "Damage = HP x %.2g", s_laserMultiplier[to]);
+			snprintf(lines[2], UPGRADE_TEXT_LEN, "+%.0f HP per zombie hit", LASER_EVO_HEAL_PER_HIT);
+		}
+		else
+		{
+			snprintf(lines[0], UPGRADE_TEXT_LEN, "Damage = HP x");
+			snprintf(lines[1], UPGRADE_TEXT_LEN, "%.2g -> %.2g", s_laserMultiplier[from], s_laserMultiplier[to]);
+		}
+		break;
+	case W_BLOODRANG:
+		if (evolves)
+		{
+			snprintf(lines[0], UPGRADE_TEXT_LEN, "EVOLVES: TWIN RANG");
+			snprintf(lines[1], UPGRADE_TEXT_LEN, "Throws %d, %.0f dmg each", RANG_EVO_COUNT, s_rangDamage[to]);
+			snprintf(lines[2], UPGRADE_TEXT_LEN, "Boost cap +%.0f%%", RANG_BOOST_PER_STACK * 100.0f * (float)RANG_EVO_MAX_STACKS);
+		}
+		else
+		{
+			snprintf(lines[0], UPGRADE_TEXT_LEN, "Damage %.0f -> %.0f", s_rangDamage[from], s_rangDamage[to]);
+			snprintf(lines[1], UPGRADE_TEXT_LEN, "Catch refund %.0f%% -> %.0f%%", s_rangRefund[from] * 100.0f, s_rangRefund[to] * 100.0f);
+		}
+		break;
+	case W_BLOOD_BOMB:
+		if (evolves)
+		{
+			snprintf(lines[0], UPGRADE_TEXT_LEN, "EVOLVES: BLOOD CLUSTER");
+			snprintf(lines[1], UPGRADE_TEXT_LEN, "%.1f dmg/HP, 100%% blood rain", s_bombDamagePerHp[to]);
+			snprintf(lines[2], UPGRADE_TEXT_LEN, "Blast throws %d mini bombs", BOMB_EVO_MINI_COUNT);
+		}
+		else
+		{
+			snprintf(lines[0], UPGRADE_TEXT_LEN, "Damage per HP %.1f -> %.1f", s_bombDamagePerHp[from], s_bombDamagePerHp[to]);
+			snprintf(lines[1], UPGRADE_TEXT_LEN, "Blood rain %.0f%% -> %.0f%%", s_bombBloodRain[from] * 100.0f, s_bombBloodRain[to] * 100.0f);
+		}
+		break;
+	case W_LAST_STAND:
+		if (evolves)
+		{
+			snprintf(lines[0], UPGRADE_TEXT_LEN, "EVOLVES: DEATH'S DOOR");
+			snprintf(lines[1], UPGRADE_TEXT_LEN, "Max damage %.0f", s_lastStandMax[to]);
+			snprintf(lines[2], UPGRADE_TEXT_LEN, "Bullets pierce %d zombies", LAST_STAND_EVO_PIERCE);
+		}
+		else
+		{
+			snprintf(lines[0], UPGRADE_TEXT_LEN, "Max damage %.0f -> %.0f", s_lastStandMax[from], s_lastStandMax[to]);
+			snprintf(lines[1], UPGRADE_TEXT_LEN, "Min damage %.0f -> %.0f", s_lastStandMin[from], s_lastStandMin[to]);
+		}
+		break;
+	default:
+		break;
+	}
+}
+
+// What a gun you don't own yet does at Lv1, as up to 3 short lines (for the new weapon cards).
+void GetNewWeaponText(WeaponType w, char lines[UPGRADE_TEXT_LINES][UPGRADE_TEXT_LEN])
+{
+	for (int i = 0; i < UPGRADE_TEXT_LINES; ++i) lines[i][0] = '\0';
+
+	switch (w)
+	{
+	case W_PISTOL:
+		snprintf(lines[0], UPGRADE_TEXT_LEN, "Cheap, fast bullets");
+		snprintf(lines[1], UPGRADE_TEXT_LEN, "%.0f dmg, %.0f HP per shot", s_pistolDamage[0], s_pistolCost[0]);
+		break;
+	case W_HEALTH_LASER:
+		snprintf(lines[0], UPGRADE_TEXT_LEN, "Fires your health bar");
+		snprintf(lines[1], UPGRADE_TEXT_LEN, "Damage = HP x %.2g", s_laserMultiplier[0]);
+		snprintf(lines[2], UPGRADE_TEXT_LEN, "Costs %.0f%% HP, pierces", LASER_COST_PERCENT * 100.0f);
+		break;
+	case W_BLOODRANG:
+		snprintf(lines[0], UPGRADE_TEXT_LEN, "Blood boomerang, %.0f dmg", s_rangDamage[0]);
+		snprintf(lines[1], UPGRADE_TEXT_LEN, "Catch it: %.0f%% HP back", s_rangRefund[0] * 100.0f);
+		snprintf(lines[2], UPGRADE_TEXT_LEN, "+ damage boost per hit");
+		break;
+	case W_BLOOD_BOMB:
+		snprintf(lines[0], UPGRADE_TEXT_LEN, "Hold to pour HP in");
+		snprintf(lines[1], UPGRADE_TEXT_LEN, "Release to throw");
+		snprintf(lines[2], UPGRADE_TEXT_LEN, "%.1f damage per HP", s_bombDamagePerHp[0]);
+		break;
+	case W_LAST_STAND:
+		snprintf(lines[0], UPGRADE_TEXT_LEN, "Stronger at low HP");
+		snprintf(lines[1], UPGRADE_TEXT_LEN, "%.0f -> %.0f damage", s_lastStandMin[0], s_lastStandMax[0]);
+		snprintf(lines[2], UPGRADE_TEXT_LEN, "%.0f HP/shot, free near death", LAST_STAND_COST);
+		break;
+	default:
+		break;
+	}
+}
+
+float GetBombBloodRainChance(void)
+{
+	return s_bombBloodRain[LevelIndex(W_BLOOD_BOMB)];
 }
 
 float GetMoveSpeedMultiplier(void)
@@ -221,6 +437,8 @@ static bool DamageZombie(int index, float damage, CP_Vector dir, float knockback
 {
 	Zombie* zombie = &s_zombies[index];
 
+	if (zombie->type == Z_BOSS) knockback *= BOSS_KNOCKBACK_SCALE;   // the boss barely budges
+
 	Sfx_Play(SFX_ZOMBIE_HIT);
 	zombie->hp -= damage;
 	zombie->hitFlash = ZOMBIE_HIT_FLASH_TIME;
@@ -237,25 +455,36 @@ static bool DamageZombie(int index, float damage, CP_Vector dir, float knockback
    Bullets: [1] Pistol and [5] Last Stand
    ========================================================= */
 static void SpawnBullet(WeaponType type, CP_Vector pos, CP_Vector direction, float speed,
-                        float damage, float radius, float knockback, CP_Color color)
+                        float damage, float radius, float knockback, CP_Color color, int pierce)
 {
 	for (int i = 0; i < MAX_BULLETS; ++i)
 	{
 		if (s_bullets[i].active) continue;   // slot in use (flying on screen), skip it
 
 		s_bullets[i] = (Bullet){
-			.active    = true,
-			.type      = type,
-			.pos       = pos,
-			.vel       = CP_Vector_Scale(direction, speed),
-			.life      = PISTOL_BULLET_LIFE,
-			.damage    = damage,
-			.radius    = radius,
-			.knockback = knockback,
-			.color     = color
+			.active     = true,
+			.type       = type,
+			.pos        = pos,
+			.vel        = CP_Vector_Scale(direction, speed),
+			.life       = PISTOL_BULLET_LIFE,
+			.damage     = damage,
+			.radius     = radius,
+			.knockback  = knockback,
+			.color      = color,
+			.pierceLeft = pierce,
+			.hitCount   = 0
 		};
 		return;
 	}
+}
+
+static bool BulletAlreadyHit(const Bullet* b, int zombieId)
+{
+	for (int h = 0; h < b->hitCount; ++h)
+	{
+		if (b->hitId[h] == zombieId) return true;
+	}
+	return false;
 }
 
 static void UpdateBullets(float deltaTime, ZombieKilledFn onZombieKilled)
@@ -276,16 +505,25 @@ static void UpdateBullets(float deltaTime, ZombieKilledFn onZombieKilled)
 			continue;
 		}
 
-		// 3. Hitbox: bullet circle vs zombie circle. The bullet stops at the first zombie it hits.
+		// 3. Hitbox: bullet circle vs zombie circle. The bullet stops at the first zombie it hits,
+		//    unless it can still pierce (then it remembers that zombie and keeps going).
 		for (int z = 0; z < MAX_ZOMBIES; ++z)
 		{
 			Zombie* zombie = &s_zombies[z];
 			if (!zombie->active) continue;
+			if (BulletAlreadyHit(b, zombie->id)) continue;
 
 			if (!AreCirclesIntersecting(b->pos.x, b->pos.y, b->radius,
 			                            zombie->pos.x, zombie->pos.y, zombie->radius)) continue;
 
+			if (b->hitCount < MAX_BULLET_HITS) b->hitId[b->hitCount++] = zombie->id;
 			DamageZombie(z, b->damage, GetNormalizedDirection(b->vel), b->knockback, onZombieKilled, b->type);
+
+			if (b->pierceLeft > 0 && b->hitCount < MAX_BULLET_HITS)
+			{
+				b->pierceLeft--;
+				continue;
+			}
 			b->active = false;
 			break;
 		}
@@ -317,7 +555,8 @@ static void SpawnLaser(CP_Vector pos, CP_Vector direction)
 		// as long as the filled part of the health bar, and the same colour as it
 		l->length   = HEALTH_BAR_WIDTH * CP_Math_ClampFloat(player.hp / player.maxHp, 0.0f, 1.0f) * LASER_SIZE_SCALE;
 		l->color    = GetHealthBarColor(player.hp, player.maxHp);
-		l->damage   = player.hp * LASER_DAMAGE_MULTIPLIER;   // hits harder the more HP you have
+		l->damage   = player.hp * LaserMultiplier();   // hits harder the more HP you have
+		l->healPerHit = IsEvolved(W_HEALTH_LASER) ? LASER_EVO_HEAL_PER_HIT : 0.0f;
 		for (int z = 0; z < MAX_ZOMBIES; ++z) l->hitId[z] = 0;
 		return;
 	}
@@ -357,6 +596,7 @@ static void UpdateLasers(float deltaTime, ZombieKilledFn onZombieKilled)
 			if (dist > zombie->radius + halfWidth) continue;
 
 			l->hitId[z] = zombie->id;
+			if (l->healPerHit > 0.0f) HealPlayer(l->healPerHit);   // Lv4: every zombie hit gives HP back
 			DamageZombie(z, l->damage, l->dir, LASER_KNOCKBACK, onZombieKilled, W_HEALTH_LASER);
 		}
 	}
@@ -394,62 +634,78 @@ static void DrawLasers(void)
 		// black border first, then the solid health-bar-coloured beam on top
 		DrawBeamRect(tail, l->head, l->dir, halfWidth, LASER_BORDER, Col(0, 0, 0, 255));
 		DrawBeamRect(tail, l->head, l->dir, halfWidth, 0.0f, l->color);
+		// Lv4: a bright white core so the evolved beam stands out
+		if (l->healPerHit > 0.0f) DrawBeamRect(tail, l->head, l->dir, halfWidth * 0.3f, 0.0f, Col(255, 255, 255, 200));
 	}
 }
 
 /* =========================================================
    [3] Bloodrang
    ========================================================= */
-static void ClearRangHits(void)
+static void ClearRangHits(Bloodrang* r)
 {
-	for (int z = 0; z < MAX_ZOMBIES; ++z) s_rang.hitId[z] = 0;
+	for (int z = 0; z < MAX_ZOMBIES; ++z) r->hitId[z] = 0;
 }
 
-static void ThrowRang(CP_Vector pos, CP_Vector direction)
+// Throws one boomerang from pos toward target.
+static void ThrowRang(Bloodrang* r, CP_Vector pos, CP_Vector target)
 {
-	s_rang.active      = true;
-	s_rang.returning   = false;
-	s_rang.approaching = false;
-	s_rang.pos         = pos;
-	s_rang.vel         = CP_Vector_Scale(direction, RANG_OUT_SPEED);
-	// fly to the mouse, kept inside the screen
-	CP_Vector mouse    = MousePos();
-	s_rang.target      = CP_Vector_Set(CP_Math_ClampFloat(mouse.x, RANG_RADIUS, windowWidth - RANG_RADIUS),
-	                                   CP_Math_ClampFloat(mouse.y, RANG_RADIUS, windowHeight - RANG_RADIUS));
-	s_rang.stored      = RANG_COST;
-	s_rang.damage      = RangDamageWithBoost();
-	s_rang.turnRate    = RANG_TURN_RATE;
-	s_rang.spin        = 0.0f;
-	s_rang.life        = RANG_MAX_LIFE;
-	s_rang.hits        = 0;
-	ClearRangHits();
+	r->active      = true;
+	r->returning   = false;
+	r->approaching = false;
+	r->pos         = pos;
+	// fly to the target, kept inside the screen
+	r->target      = CP_Vector_Set(CP_Math_ClampFloat(target.x, RANG_RADIUS, windowWidth - RANG_RADIUS),
+	                               CP_Math_ClampFloat(target.y, RANG_RADIUS, windowHeight - RANG_RADIUS));
+	r->vel         = CP_Vector_Scale(GetNormalizedDirection(CP_Vector_Subtract(r->target, pos)), RANG_OUT_SPEED);
+	r->stored      = RANG_COST;
+	r->damage      = RangDamageWithBoost();
+	r->turnRate    = RANG_TURN_RATE;
+	r->spin        = 0.0f;
+	r->life        = RANG_MAX_LIFE;
+	r->hits        = 0;
+	ClearRangHits(r);
 }
 
-// Caught: get its HP back, and every zombie it hit becomes a boost stack.
-static void CatchRang(void)
+// Throws one boomerang at the mouse, or two (one each side of the mouse) at Lv4.
+static void ThrowRangs(CP_Vector pos, CP_Vector direction)
+{
+	CP_Vector mouse = MousePos();
+	if (RangThrowCount() == 1)
+	{
+		ThrowRang(&s_rangs[0], pos, mouse);
+		return;
+	}
+
+	CP_Vector side = CP_Vector_Scale(CP_Vector_Set(-direction.y, direction.x), RANG_EVO_SIDE_OFFSET);
+	ThrowRang(&s_rangs[0], pos, CP_Vector_Add(mouse, side));
+	ThrowRang(&s_rangs[1], pos, CP_Vector_Subtract(mouse, side));
+}
+
+// Caught: get its HP back (30% / 60% / 100% by level), and every zombie it hit becomes a boost stack.
+static void CatchRang(Bloodrang* r)
 {
 	Sfx_Play(SFX_RANG_CATCH);
-	HealPlayer(s_rang.stored);
-	s_rangStacks += s_rang.hits;
-	if (s_rangStacks > RANG_MAX_STACKS) s_rangStacks = RANG_MAX_STACKS;
-	s_rang.active = false;
+	HealPlayer(r->stored * RangRefund());
+	s_rangStacks += r->hits;
+	if (s_rangStacks > RangMaxStacks()) s_rangStacks = RangMaxStacks();
+	r->active = false;
 }
 
 // Bled out: the HP is gone and so is your boost.
-static void LoseRang(void)
+static void LoseRang(Bloodrang* r)
 {
 	s_rangStacks = 0;
-	s_rang.active = false;
+	r->active = false;
 }
 
-static void UpdateRang(float deltaTime, ZombieKilledFn onZombieKilled)
+static void UpdateRang(Bloodrang* r, float deltaTime, ZombieKilledFn onZombieKilled)
 {
-	Bloodrang* r = &s_rang;
 	if (!r->active) return;
 
 	r->spin += RANG_SPIN_SPEED * deltaTime;
 	r->life -= deltaTime;
-	if (r->life <= 0.0f) { LoseRang(); return; }
+	if (r->life <= 0.0f) { LoseRang(r); return; }
 
 	if (!r->returning)
 	{
@@ -463,7 +719,7 @@ static void UpdateRang(float deltaTime, ZombieKilledFn onZombieKilled)
 			r->pos = r->target;     // reached it: start coming back (it keeps its outward velocity, so it swings round in a curve)
 			r->returning = true;
 			r->approaching = false;
-			ClearRangHits();        // new trip, so zombies hit on the way out can be hit again on the way back
+			ClearRangHits(r);       // new trip, so zombies hit on the way out can be hit again on the way back
 		}
 		else
 		{
@@ -490,7 +746,7 @@ static void UpdateRang(float deltaTime, ZombieKilledFn onZombieKilled)
 		// caught?
 		if (CP_Vector_Distance(r->pos, player.position) <= PLAYER_RADIUS + RANG_RADIUS)
 		{
-			CatchRang();
+			CatchRang(r);
 			return;
 		}
 
@@ -501,8 +757,8 @@ static void UpdateRang(float deltaTime, ZombieKilledFn onZombieKilled)
 		{
 			r->stored   -= RANG_LAP_DRAIN;     // bleeds a little each lap
 			r->turnRate *= RANG_TURN_GROWTH;   // and homes in harder, so it can't orbit you forever
-			ClearRangHits();                   // new lap = new trip
-			if (r->stored <= 0.0f) { LoseRang(); return; }
+			ClearRangHits(r);                  // new lap = new trip
+			if (r->stored <= 0.0f) { LoseRang(r); return; }
 		}
 		r->approaching = approachingNow;
 	}
@@ -523,23 +779,23 @@ static void UpdateRang(float deltaTime, ZombieKilledFn onZombieKilled)
 	}
 }
 
-static void DrawRang(void)
+static void DrawRang(const Bloodrang* r)
 {
-	if (!s_rang.active) return;
+	if (!r->active) return;
 
 	// a spinning blood "X": black outline first, then the red blades. It fades as it bleeds out.
-	int alpha = (int)(120.0f + 135.0f * CP_Math_ClampFloat(s_rang.stored / RANG_COST, 0.0f, 1.0f));
+	int alpha = (int)(120.0f + 135.0f * CP_Math_ClampFloat(r->stored / RANG_COST, 0.0f, 1.0f));
 	CP_Color color = Col(BLOODRANG_RGB, alpha);
 	for (int blade = 0; blade < 2; ++blade)
 	{
-		float angle = s_rang.spin + (float)blade * (PI_F * 0.5f);
+		float angle = r->spin + (float)blade * (PI_F * 0.5f);
 		CP_Vector arm = CP_Vector_Set(cosf(angle) * RANG_RADIUS, sinf(angle) * RANG_RADIUS);
-		CP_Vector a = CP_Vector_Subtract(s_rang.pos, arm);
-		CP_Vector b = CP_Vector_Add(s_rang.pos, arm);
+		CP_Vector a = CP_Vector_Subtract(r->pos, arm);
+		CP_Vector b = CP_Vector_Add(r->pos, arm);
 		DrawColoredLine(a.x, a.y, b.x, b.y, 9.0f, Col(0, 0, 0, alpha));
 		DrawColoredLine(a.x, a.y, b.x, b.y, 5.0f, color);
 	}
-	G_Circle(s_rang.pos.x, s_rang.pos.y, 4.0f, Col(255, 180, 180, alpha));
+	G_Circle(r->pos.x, r->pos.y, 4.0f, Col(255, 180, 180, alpha));
 }
 
 /* =========================================================
@@ -555,28 +811,43 @@ static void SpawnBlast(CP_Vector pos, float radius)
 	}
 }
 
-static void ThrowBomb(CP_Vector pos, CP_Vector direction, CP_Vector target, float stored)
+// Puts a bomb in the air. Returns false if every slot is full.
+static bool SpawnBomb(CP_Vector pos, CP_Vector vel, CP_Vector target, float stored, float damagePerHp, bool mini)
 {
 	for (int i = 0; i < MAX_BOMBS; ++i)
 	{
 		if (s_bombs[i].active) continue;
 		s_bombs[i] = (BloodBomb){
-			.active = true,
-			.pos    = pos,
-			.vel    = CP_Vector_Scale(direction, BOMB_THROW_SPEED),
-			.target = target,
-			.stored = stored
+			.active      = true,
+			.mini        = mini,
+			.pos         = pos,
+			.vel         = vel,
+			.target      = target,
+			.stored      = stored,
+			.damagePerHp = damagePerHp
 		};
-		return;
+		return true;
 	}
-	HealPlayer(stored);   // no free slot (very unlikely): give the HP back instead of losing it
+	return false;
+}
+
+static void ThrowBomb(CP_Vector pos, CP_Vector direction, CP_Vector target, float stored)
+{
+	if (!SpawnBomb(pos, CP_Vector_Scale(direction, BOMB_THROW_SPEED), target, stored, BombDamagePerHp(), false))
+	{
+		HealPlayer(stored);   // no free slot (very unlikely): give the HP back instead of losing it
+	}
 }
 
 // Every zombie inside the blast takes the damage and is thrown away from the centre.
+// Lv4: a big bomb also throws out mini bombs in a ring that explode around it.
 static void ExplodeBomb(BloodBomb* bomb, ZombieKilledFn onZombieKilled)
 {
-	float radius = BombBlastRadius(bomb->stored);
-	float damage = BombDamage(bomb->stored);
+	BloodBomb b = *bomb;   // copy: the slot is freed first so the mini bombs can reuse it
+	bomb->active = false;
+
+	float radius = BombBlastRadius(b.stored);
+	float damage = b.stored * b.damagePerHp;
 
 	Sfx_Play(SFX_BOMB_EXPLOSION);
 
@@ -585,14 +856,26 @@ static void ExplodeBomb(BloodBomb* bomb, ZombieKilledFn onZombieKilled)
 		Zombie* zombie = &s_zombies[z];
 		if (!zombie->active) continue;
 
-		CP_Vector away = CP_Vector_Subtract(zombie->pos, bomb->pos);
+		CP_Vector away = CP_Vector_Subtract(zombie->pos, b.pos);
 		if (CP_Vector_Length(away) > radius + zombie->radius) continue;
 
 		DamageZombie(z, damage, GetNormalizedDirection(away), BOMB_KNOCKBACK, onZombieKilled, W_BLOOD_BOMB);
 	}
 
-	SpawnBlast(bomb->pos, radius);
-	bomb->active = false;
+	SpawnBlast(b.pos, radius);
+
+	if (!b.mini && IsEvolved(W_BLOOD_BOMB))
+	{
+		float miniStored = b.stored * BOMB_EVO_MINI_SHARE;
+		float startAngle = CP_Random_RangeFloat(0.0f, 2.0f * PI_F);
+		for (int m = 0; m < BOMB_EVO_MINI_COUNT; ++m)
+		{
+			float angle = startAngle + (float)m * (2.0f * PI_F / (float)BOMB_EVO_MINI_COUNT);
+			CP_Vector dir = CP_Vector_Set(cosf(angle), sinf(angle));
+			CP_Vector target = CP_Vector_Add(b.pos, CP_Vector_Scale(dir, radius * BOMB_EVO_MINI_DISTANCE));
+			SpawnBomb(b.pos, CP_Vector_Scale(dir, BOMB_EVO_MINI_SPEED), target, miniStored, b.damagePerHp, true);
+		}
+	}
 }
 
 static void UpdateBombs(float deltaTime, ZombieKilledFn onZombieKilled)
@@ -603,7 +886,7 @@ static void UpdateBombs(float deltaTime, ZombieKilledFn onZombieKilled)
 		if (!bomb->active) continue;
 
 		// reached the spot you aimed at -> explode there
-		float step = BOMB_THROW_SPEED * deltaTime;
+		float step = CP_Vector_Length(bomb->vel) * deltaTime;
 		if (CP_Vector_Distance(bomb->pos, bomb->target) <= step)
 		{
 			bomb->pos = bomb->target;
@@ -618,7 +901,8 @@ static void UpdateBombs(float deltaTime, ZombieKilledFn onZombieKilled)
 			continue;
 		}
 
-		// touched a zombie -> explode on it
+		// touched a zombie -> explode on it (mini bombs start inside the crowd, so they only explode where they land)
+		if (bomb->mini) continue;
 		float orbRadius = BombOrbRadius(bomb->stored);
 		for (int z = 0; z < MAX_ZOMBIES; ++z)
 		{
@@ -669,9 +953,10 @@ static void DrawBombs(void)
 	if (s_charging) DrawBombOrb(GunTip(), s_chargeStored);
 }
 
-// Switched guns while charging: pour the HP back into the player.
-static void CancelBombCharge(void)
+// Stop charging (switched guns, wave ended...): pour the HP back into the player.
+void CancelCharging(void)
 {
+	if (!s_charging) return;
 	HealPlayer(s_chargeStored);
 	s_charging = false;
 	s_chargeStored = 0.0f;
@@ -736,12 +1021,32 @@ void ResetWeapons(void)
 	for (int i = 0; i < MAX_LASERS; ++i)  s_lasers[i].active = false;
 	for (int i = 0; i < MAX_BOMBS; ++i)   s_bombs[i].active = false;
 	for (int i = 0; i < MAX_BLASTS; ++i)  s_blasts[i].active = false;
-	s_rang.active = false;
+	for (int i = 0; i < MAX_RANGS; ++i)   s_rangs[i].active = false;
 	s_rangStacks = 0;
 	s_charging = false;
 	s_chargeStored = 0.0f;
 	s_fireTimer = START_FIRE_DELAY;
 	Sfx_StopBombCharge();
+}
+
+// Pistol shot: one bullet, or a piercing 3-bullet spread at Lv4.
+static void FirePistol(CP_Vector gunTip, CP_Vector direction)
+{
+	CP_Color color = Col(PISTOL_RGB, 255);
+	if (!IsEvolved(W_PISTOL))
+	{
+		SpawnBullet(W_PISTOL, gunTip, direction, PISTOL_BULLET_SPEED, PistolDamage(),
+			PISTOL_BULLET_RADIUS, PISTOL_KNOCKBACK, color, 0);
+		return;
+	}
+
+	float firstAngle = -PISTOL_EVO_SPREAD * (float)(PISTOL_EVO_BULLETS - 1) * 0.5f;
+	for (int i = 0; i < PISTOL_EVO_BULLETS; ++i)
+	{
+		CP_Vector dir = RotateDirection(direction, firstAngle + PISTOL_EVO_SPREAD * (float)i);
+		SpawnBullet(W_PISTOL, gunTip, dir, PISTOL_BULLET_SPEED, PistolDamage(),
+			PISTOL_BULLET_RADIUS, PISTOL_KNOCKBACK, color, PISTOL_EVO_PIERCE);
+	}
 }
 
 // Spawns the shot for a "click to fire" gun. Called BEFORE the HP cost is taken (the laser uses your HP).
@@ -750,16 +1055,16 @@ static void FireWeapon(WeaponType w, CP_Vector gunTip, CP_Vector direction)
 	switch (w)
 	{
 	case W_HEALTH_LASER: SpawnLaser(gunTip, direction); Sfx_Play(SFX_HEALTH_LASER); break;
-	case W_BLOODRANG:    ThrowRang(gunTip, direction);  Sfx_Play(SFX_RANG_THROW);   break;
+	case W_BLOODRANG:    ThrowRangs(gunTip, direction); Sfx_Play(SFX_RANG_THROW);   break;
 	case W_LAST_STAND:
 		SpawnBullet(W_LAST_STAND, gunTip, direction, LAST_STAND_BULLET_SPEED, LastStandDamage(),
-			LastStandRadius(), LAST_STAND_KNOCKBACK, LastStandColor(255));
+			LastStandRadius(), LAST_STAND_KNOCKBACK, LastStandColor(255),
+			IsEvolved(W_LAST_STAND) ? LAST_STAND_EVO_PIERCE : 0);
 		Sfx_Play(SFX_LAST_STAND);
 		break;
 	case W_PISTOL:
 	default:
-		SpawnBullet(W_PISTOL, gunTip, direction, PISTOL_BULLET_SPEED, PISTOL_BULLET_DAMAGE,
-			PISTOL_BULLET_RADIUS, PISTOL_KNOCKBACK, Col(PISTOL_RGB, 255));
+		FirePistol(gunTip, direction);
 		Sfx_Play(SFX_PISTOL);
 		break;
 	}
@@ -771,7 +1076,7 @@ void HandleShooting(float deltaTime)
 	bool held = CP_Input_MouseDown(MOUSE_BUTTON_LEFT);
 
 	// switched away from the bomb mid-charge: refund it
-	if (s_charging && player.weapon != W_BLOOD_BOMB) CancelBombCharge();
+	if (s_charging && player.weapon != W_BLOOD_BOMB) CancelCharging();
 
 	// the blood bomb charges while held and throws on release, so it works differently
 	if (player.weapon == W_BLOOD_BOMB)
@@ -782,7 +1087,7 @@ void HandleShooting(float deltaTime)
 
 	if (!held || s_fireTimer > 0.0f) return;
 	if (IsLaserActive()) return;                                 // nothing fires until the laser has left the screen
-	if (player.weapon == W_BLOODRANG && s_rang.active) return;   // one bloodrang at a time
+	if (player.weapon == W_BLOODRANG && AnyRangActive()) return; // one throw at a time
 
 	float cost = GetShotCost(player.weapon);
 	if (player.hp - cost < MIN_HP_AFTER_SHOT)   // you can't shoot yourself to death
@@ -802,7 +1107,7 @@ void UpdateShots(float deltaTime, ZombieKilledFn onZombieKilled)
 {
 	UpdateBullets(deltaTime, onZombieKilled);
 	UpdateLasers(deltaTime, onZombieKilled);
-	UpdateRang(deltaTime, onZombieKilled);
+	for (int i = 0; i < MAX_RANGS; ++i) UpdateRang(&s_rangs[i], deltaTime, onZombieKilled);
 	UpdateBombs(deltaTime, onZombieKilled);
 }
 
@@ -816,5 +1121,5 @@ void DrawShots(void)
 	}
 	DrawLasers();
 	DrawBombs();
-	DrawRang();
+	for (int i = 0; i < MAX_RANGS; ++i) DrawRang(&s_rangs[i]);
 }

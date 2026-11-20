@@ -88,7 +88,7 @@ void HandleGunSwitch(void)
 	bool ctrlHeld = CP_Input_KeyDown(KEY_LEFT_CONTROL) || CP_Input_KeyDown(KEY_RIGHT_CONTROL);
 	if (ctrlHeld) return;
 
-	// keys 1-5 pick a gun, but only one you own (every gun except the pistol is a rare zombie drop)
+	// keys 1-5 pick a gun, but only one you own (new guns are chosen on the upgrade screen every 3 waves)
 	if (CP_Input_KeyTriggered(KEY_1) && player.owned[W_PISTOL])       player.weapon = W_PISTOL;
 	if (CP_Input_KeyTriggered(KEY_2) && player.owned[W_HEALTH_LASER]) player.weapon = W_HEALTH_LASER;
 	if (CP_Input_KeyTriggered(KEY_3) && player.owned[W_BLOODRANG])    player.weapon = W_BLOODRANG;

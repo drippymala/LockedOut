@@ -20,6 +20,8 @@
 Zombie     s_zombies[MAX_ZOMBIES];   // not static: shared through zombie.h
 static int s_nextZombieId = 1;       // unique id per zombie
 
+static void PlaceAtRandomEdge(Zombie* z, float margin);
+
 // Clears every zombie slot and restarts the id counter. Called from Game_Init.
 void ResetZombies(void)
 {
@@ -109,11 +111,46 @@ void SpawnZombie(int wave)
 	z->speed *= spdMul;
 	z->damage *= dmgMul;
 	z->hp = z->maxHp;
-	z->hp = z->maxHp;
 	z->attackTimer = 0.5f;
 
-	// Spawn just outside a random edge (0 = top, 1 = right, 2 = bottom, 3 = left)
-	const float margin = 40.0f;
+	PlaceAtRandomEdge(z, 40.0f);
+}
+
+// The wave 20 boss: one huge, very tanky zombie. No special AI yet, it just chases you.
+void SpawnBoss(void)
+{
+	for (int i = 0; i < MAX_ZOMBIES; ++i)
+	{
+		if (s_zombies[i].active) continue;
+
+		Zombie* z = &s_zombies[i];
+		z->active = true;
+		z->id = s_nextZombieId++;
+		z->type = Z_BOSS;
+		z->maxHp = BOSS_HP;
+		z->hp = BOSS_HP;
+		z->speed = BOSS_SPEED;
+		z->radius = BOSS_RADIUS;
+		z->damage = BOSS_DAMAGE;
+		z->attackTimer = 0.5f;
+		z->hitFlash = 0.0f;
+		PlaceAtRandomEdge(z, BOSS_RADIUS + 20.0f);
+		return;
+	}
+}
+
+const Zombie* FindBoss(void)
+{
+	for (int i = 0; i < MAX_ZOMBIES; ++i)
+	{
+		if (s_zombies[i].active && s_zombies[i].type == Z_BOSS) return &s_zombies[i];
+	}
+	return NULL;
+}
+
+// Puts a zombie just outside a random screen edge (0 = top, 1 = right, 2 = bottom, 3 = left).
+static void PlaceAtRandomEdge(Zombie* z, float margin)
+{
 	int edge = (int)CP_Random_RangeFloat(0.0f, 4.0f);
 	//where to spawn zombie based on edge
 	switch (edge)
@@ -157,11 +194,17 @@ void DrawZombies(void)
 			armThickness = 6.0f;
 			armLength = r * 1.8f;
 		}
-		else // Z_BRUTE
+		else if (z->type == Z_BRUTE)
 		{
 			skinColor = (z->hitFlash > 0.0f) ? Col(255, 255, 255, 255) : Col(55, 95, 55, 255);
 			armThickness = 16.0f;
 			armLength = r * 1.4f;
+		}
+		else // Z_BOSS: a huge sickly purple zombie (its health bar is drawn at the top of the screen)
+		{
+			skinColor = (z->hitFlash > 0.0f) ? Col(255, 220, 220, 255) : Col(110, 60, 120, 255);
+			armThickness = 30.0f;
+			armLength = r * 1.3f;
 		}
 
 		// 2. Vector Math: Find forward direction and sideways direction
@@ -188,10 +231,20 @@ void DrawZombies(void)
 
 		// 6. Draw the head circle
 		G_Circle(z->pos.x, z->pos.y, r, skinColor);
-		G_Ring(z->pos.x, z->pos.y, r, 2.0f, Col(20, 35, 20, 255));
+		G_Ring(z->pos.x, z->pos.y, r, (z->type == Z_BOSS) ? 5.0f : 2.0f, Col(20, 35, 20, 255));
+		if (z->type == Z_BOSS)
+		{
+			// glowing red eyes so it reads as "the big one"
+			CP_Vector eyeBase = CP_Vector_Add(z->pos, CP_Vector_Scale(fwd, r * 0.45f));
+			CP_Vector eyeSide = CP_Vector_Scale(side, r * 0.32f);
+			CP_Vector leftEye = CP_Vector_Subtract(eyeBase, eyeSide);
+			CP_Vector rightEye = CP_Vector_Add(eyeBase, eyeSide);
+			G_Circle(leftEye.x, leftEye.y, 8.0f, Col(255, 40, 40, 255));
+			G_Circle(rightEye.x, rightEye.y, 8.0f, Col(255, 40, 40, 255));
+		}
 
-		// 7. Draw floating health bar (if damaged)
-		if (z->hp < z->maxHp)
+		// 7. Draw floating health bar (if damaged; the boss has its own bar at the top of the screen)
+		if (z->hp < z->maxHp && z->type != Z_BOSS)
 		{
 			float barW = r * 2.4f;
 			float hpRatio = z->hp / z->maxHp;
