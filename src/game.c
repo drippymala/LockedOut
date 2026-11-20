@@ -17,6 +17,7 @@
 #include "zombie.h"      // zombie spawning, chasing, drawing (zombie.c)
 #include "player.h"      // Sean's player code (movement, aim, sprite, hitboxes)
 #include "weapon.h"      // gun stats, firing, bullets and the health laser (weapon.c)
+#include "sfx.h"         // sound effects (sfx.c)
 #include <math.h>
 #include <stdbool.h>
 
@@ -854,6 +855,7 @@ static void GameOver_Start(void)
 {
 	s_gameOver = true;
 	s_goTimer = 0.0f;
+	Sfx_StopBombCharge();    // died mid-charge: don't let the charge-up keep playing over the game over screen
 	s_goWave = s_wave;       // remember which wave we died on
 
 	if (s_score > s_bestScore) s_bestScore = s_score;
@@ -924,6 +926,7 @@ static void GameOver_CheckClicks(float deltaTime)
 void Game_Init(void)
 {
 	Font_EnsureLoaded();   // the menu frees its font on exit, so reload it for the pause text
+	Sfx_Load();            // sfx.c: loads the sound effects (skips any already loaded, e.g. on TRY AGAIN)
 	s_paused = false;      // always start a new game unpaused
 	GameOver_Reset();      // [GAME OVER] new run = score back to 0, game over screen hidden
 
@@ -1000,7 +1003,11 @@ void Game_Update(void)
 	// [GAME OVER] END -----------------------------------------------------------
 
 	// ESC toggles pause; while paused, M goes back to the main menu
-	if (CP_Input_KeyTriggered(KEY_ESCAPE)) s_paused = !s_paused;
+	if (CP_Input_KeyTriggered(KEY_ESCAPE))
+	{
+		s_paused = !s_paused;
+		Sfx_SetPaused(s_paused);   // sfx.c: freeze sounds (e.g. the bomb charge-up) along with the game
+	}
 	if (s_paused && CP_Input_KeyTriggered(KEY_M))
 	{
 		GoToMenu();
@@ -1025,4 +1032,5 @@ void Game_Update(void)
 
 void Game_Exit(void)
 {
+	Sfx_Free();   // sfx.c: stop and free every sound effect
 }

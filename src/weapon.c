@@ -18,6 +18,7 @@
 #include "game.h"      // player, windowWidth / windowHeight, PLAYER_RADIUS, health bar helpers
 #include "zombie.h"    // s_zombies
 #include "weapon.h"
+#include "sfx.h"       // gun / hit / explosion sounds
 
 #define BULLET_OFFSCREEN_MARGIN   30.0f   // a bullet this far past the edge is removed
 #define LASER_OFFSCREEN_MARGIN    60.0f   // the laser keeps going a bit past the edge so it still hits zombies spawning there
@@ -220,6 +221,7 @@ static bool DamageZombie(int index, float damage, CP_Vector dir, float knockback
 {
 	Zombie* zombie = &s_zombies[index];
 
+	Sfx_Play(SFX_ZOMBIE_HIT);
 	zombie->hp -= damage;
 	zombie->hitFlash = ZOMBIE_HIT_FLASH_TIME;
 	zombie->pos = CP_Vector_Add(zombie->pos, CP_Vector_Scale(dir, knockback));
@@ -426,6 +428,7 @@ static void ThrowRang(CP_Vector pos, CP_Vector direction)
 // Caught: get its HP back, and every zombie it hit becomes a boost stack.
 static void CatchRang(void)
 {
+	Sfx_Play(SFX_RANG_CATCH);
 	HealPlayer(s_rang.stored);
 	s_rangStacks += s_rang.hits;
 	if (s_rangStacks > RANG_MAX_STACKS) s_rangStacks = RANG_MAX_STACKS;
@@ -575,6 +578,8 @@ static void ExplodeBomb(BloodBomb* bomb, ZombieKilledFn onZombieKilled)
 	float radius = BombBlastRadius(bomb->stored);
 	float damage = BombDamage(bomb->stored);
 
+	Sfx_Play(SFX_BOMB_EXPLOSION);
+
 	for (int z = 0; z < MAX_ZOMBIES; ++z)
 	{
 		Zombie* zombie = &s_zombies[z];
@@ -670,6 +675,7 @@ static void CancelBombCharge(void)
 	HealPlayer(s_chargeStored);
 	s_charging = false;
 	s_chargeStored = 0.0f;
+	Sfx_StopBombCharge();
 }
 
 // Hold = drain HP into the orb (up to the cap). Release = throw it at the mouse.
@@ -687,6 +693,7 @@ static void UpdateBombCharge(float deltaTime, bool held)
 		s_charging = true;
 		s_chargeStored = 0.0f;
 		s_chargeCap = player.hp * BOMB_MAX_CHARGE_PERCENT;
+		Sfx_Play(SFX_BOMB_CHARGE);   // rising charge-up, cut off on release
 	}
 	if (!s_charging) return;
 
@@ -703,6 +710,7 @@ static void UpdateBombCharge(float deltaTime, bool held)
 	}
 	else
 	{
+		Sfx_StopBombCharge();
 		ThrowBomb(GunTip(), player.aimDirection, MousePos(), s_chargeStored);
 		s_charging = false;
 		s_chargeStored = 0.0f;
@@ -733,6 +741,7 @@ void ResetWeapons(void)
 	s_charging = false;
 	s_chargeStored = 0.0f;
 	s_fireTimer = START_FIRE_DELAY;
+	Sfx_StopBombCharge();
 }
 
 // Spawns the shot for a "click to fire" gun. Called BEFORE the HP cost is taken (the laser uses your HP).
@@ -740,16 +749,18 @@ static void FireWeapon(WeaponType w, CP_Vector gunTip, CP_Vector direction)
 {
 	switch (w)
 	{
-	case W_HEALTH_LASER: SpawnLaser(gunTip, direction); break;
-	case W_BLOODRANG:    ThrowRang(gunTip, direction);  break;
+	case W_HEALTH_LASER: SpawnLaser(gunTip, direction); Sfx_Play(SFX_HEALTH_LASER); break;
+	case W_BLOODRANG:    ThrowRang(gunTip, direction);  Sfx_Play(SFX_RANG_THROW);   break;
 	case W_LAST_STAND:
 		SpawnBullet(W_LAST_STAND, gunTip, direction, LAST_STAND_BULLET_SPEED, LastStandDamage(),
 			LastStandRadius(), LAST_STAND_KNOCKBACK, LastStandColor(255));
+		Sfx_Play(SFX_LAST_STAND);
 		break;
 	case W_PISTOL:
 	default:
 		SpawnBullet(W_PISTOL, gunTip, direction, PISTOL_BULLET_SPEED, PISTOL_BULLET_DAMAGE,
 			PISTOL_BULLET_RADIUS, PISTOL_KNOCKBACK, Col(PISTOL_RGB, 255));
+		Sfx_Play(SFX_PISTOL);
 		break;
 	}
 }

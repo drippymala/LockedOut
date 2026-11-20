@@ -1,0 +1,38 @@
+{
+ "note": "3 Bfxr layers mixed: crack*crackGain + thump + mid*midGain. Noise uses seeded Math.random (mulberry32) with crackSeed.",
+ "crackSeed": 35,
+ "crackGain": 4.526637090364871,
+ "midGain": 0.29032268930373517,
+ "crack": {
+  "waveType": 3,
+  "frequency_start": 0.6802034213151028,
+  "frequency_slide": 0.0960738796018342,
+  "attackTime": 0.03163939705259858,
+  "sustainTime": 0.01535539337477076,
+  "sustainPunch": 0.5488070030313148,
+  "decayTime": 0.044249565922594825,
+  "hpFilterCutoff": 0.21214622482021067,
+  "lpFilterCutoff": 0.5176641633808728,
+  "lpFilterResonance": 0.12424899682765071
+ },
+ "thump": {
+  "waveType": 2,
+  "frequency_start": 0.18,
+  "frequency_slide": 0.08912173785692094,
+  "attackTime": 0.032785746053348254,
+  "sustainTime": 0.011809648676920333,
+  "sustainPunch": 0.305549350507235,
+  "decayTime": 0.030220582554411592,
+  "lpFilterCutoff": 0.9899786973572862
+ },
+ "mid": {
+  "waveType": 1,
+  "frequency_start": 0.46093533538649306,
+  "frequency_slide": -0.2,
+  "sustainTime": 0.07210870760322735,
+  "sustainPunch": 0.17904533210358226,
+  "decayTime": 0.03,
+  "lpFilterCutoff": 1,
+  "squareDuty": 0.5859286233365055
+ }
+}

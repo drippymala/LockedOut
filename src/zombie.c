@@ -13,6 +13,7 @@
 #include "game.h"     // player, windowWidth, windowHeight
 #include "zombie.h"
 #include "player.h"   // ZombieTouchingPlayer (player hitbox)
+#include "sfx.h"      // player hurt sound
 
 #define ZOMBIE_ATTACK_COOLDOWN     0.80f   // seconds between bites from the same zombie
 
@@ -231,6 +232,7 @@ void UpdateZombies(float deltaTime)
 			if (z->attackTimer <= 0.0f)
 			{
 				player.hp -= z->damage;
+				Sfx_Play(SFX_PLAYER_HURT);
 				z->attackTimer = ZOMBIE_ATTACK_COOLDOWN; // Attack interval
 
 				player.combatTimer = 0.0f;      // taking damage resets out-of-combat timer
