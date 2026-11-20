@@ -26,6 +26,8 @@
 
 // (every gun stat — cost, fire delay, speed, damage — is in weapon.h)
 #define GHOST_DRAIN_RATE          70.0f   // how fast the pale "ghost" bar catches up (HP per second)
+#define WAVE_INTRO_TIME      2.2f   // seconds the "WAVE N" banner shows before zombies start spawning
+
 
 // ---- pickups dropped by zombies ---- (syahmi
 #define MAX_PICKUPS           64
@@ -87,6 +89,7 @@ static int      s_wave = 0;              // Current wave number
 static int      s_toSpawn = 0;           // How many zombies left to spawn this wave
 static float    s_spawnTimer = 0.0f;     // Delay between each spawn
 static float    s_waveClearTimer = 0.0f; // Delay before the next wave begins
+static float    s_waveIntroTimer = 0.0f; // counts down while the wave banner is showing
 
 /* ---------- Logic & Rendering ---------- */
 
@@ -265,7 +268,7 @@ static void DrawHud(void)
 		G_Text(buf, bx, statusY, 22.0f, Col(150, 255, 190, 255), AL_LEFT);
 	}
 
-	// ----- bottom: gun slots (1-5), unowned guns show as ??? -----
+		// ----- bottom: gun slots (1-5), unowned guns show as ??? -----
 	const float slotW = 200.0f, slotH = 56.0f, slotGap = 10.0f;
 	float slotX = (screenW - (slotW * W_COUNT + slotGap * (W_COUNT - 1))) * 0.5f;
 	float slotY = screenH - 100.0f;
@@ -627,10 +630,18 @@ static void StartWave(void)
 	s_toSpawn = 4 + (4 * s_wave);
 	s_spawnTimer = 0.0f;
 	s_waveClearTimer = 0.0f;
+	s_waveIntroTimer = WAVE_INTRO_TIME;   // <-- add this
 }
 
 static void UpdateWave(float deltaTime)
 {
+	// wave banner is showing: the player can already move and aim, but nothing spawns yet
+	if (s_waveIntroTimer > 0.0f)
+	{
+		s_waveIntroTimer -= deltaTime;
+		return;
+	}
+
 	int alive = CountAliveZombies();
 
 	// 1. If we still have zombies to spawn in this wave
@@ -677,6 +688,31 @@ static void ResolveOverlaps(void)
 	}
 }
 
+// "WAVE N" banner that fades out during the intro
+static void DrawWaveIntro(void)
+{
+	if (s_waveIntroTimer <= 0.0f) return;
+
+	// full strength at first, fades out over the second half of the intro
+	float fade = CP_Math_ClampFloat(s_waveIntroTimer / WAVE_INTRO_TIME * 2.0f, 0.0f, 1.0f);
+	int alpha = (int)(fade * 255.0f);
+
+	char buf[64];
+	snprintf(buf, sizeof(buf), "WAVE %d", s_wave);
+	G_Text(buf, windowWidth * 0.5f, windowHeight * 0.28f, 110.0f, Col(255, 230, 120, alpha), AL_CENTER);
+
+	if (s_wave == 1)
+	{
+		G_Text("Every bullet costs your blood. Kill zombies and grab drops to live.",
+			windowWidth * 0.5f, windowHeight * 0.28f + 80.0f, 30.0f, Col(230, 230, 230, alpha), AL_CENTER);
+	}
+	else
+	{
+		G_Text("They're getting stronger...",
+			windowWidth * 0.5f, windowHeight * 0.28f + 80.0f, 30.0f, Col(230, 230, 230, alpha), AL_CENTER);
+	}
+}
+
 static void Render(void)
 {
 	DrawBackgroundGrid();
@@ -686,6 +722,7 @@ static void Render(void)
 	DrawPlayerSprite();
 	DrawFloatTexts();       // "+30 HP" pop-ups above everything in the world
 	DrawHud();
+	DrawWaveIntro();   // "WAVE N" banner at the start of each wave
 
 	if (s_paused) DrawPauseOverlay();
 	else          DrawMouseCrosshair();   // hide the crosshair while paused
@@ -878,6 +915,7 @@ static void GameOver_CheckClicks(float deltaTime)
 		}
 	}
 }
+
 /* [GAME OVER] END */
 
 /* =========================================================
