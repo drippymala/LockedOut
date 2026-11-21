@@ -20,6 +20,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\src\game.c" />
+    <ClCompile Include="..\src\howtoplay.c" />
     <ClCompile Include="..\src\main.c" />
     <ClCompile Include="..\src\mainmenu.c" />
     <ClCompile Include="..\src\player.c" />
@@ -30,6 +31,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\src\game.h" />
+    <ClInclude Include="..\src\howtoplay.h" />
     <ClInclude Include="..\src\mainmenu.h" />
     <ClInclude Include="..\src\player.h" />
     <ClInclude Include="..\src\sfx.h" />

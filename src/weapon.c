@@ -172,10 +172,7 @@ float GetShotCost(WeaponType w)
 	case W_HEALTH_LASER: return player.hp * LASER_COST_PERCENT;   // a quarter of whatever you have now
 	case W_BLOODRANG:    return RANG_COST * (float)RangThrowCount();
 	case W_BLOOD_BOMB:   return 0.0f;                             // paid while charging instead
-	case W_LAST_STAND:
-		// at the lowest HP you can shoot from, the shot is free (so it never locks up near death)
-		if (player.hp - LAST_STAND_COST < MIN_HP_AFTER_SHOT) return 0.0f;
-		return LAST_STAND_COST;
+	case W_LAST_STAND:   return LAST_STAND_COST;   // always the full 3 HP, no free shots
 	default:             return 1.0f;
 	}
 }
@@ -260,9 +257,8 @@ void GetWeaponHudText(WeaponType w, char* buf, size_t bufSize)
 				name, level, BOMB_MAX_CHARGE_PERCENT * 100.0f, BombDamagePerHp());
 		break;
 	case W_LAST_STAND:
-		if (GetShotCost(w) <= 0.0f)
-			snprintf(buf, bufSize, "[5] %s Lv%d: at death's door, shots are FREE  -  deals %.0f now",
-				name, level, LastStandDamage());
+		if (player.hp - LAST_STAND_COST < MIN_HP_AFTER_SHOT)
+			snprintf(buf, bufSize, "[5] %s Lv%d: not enough HP to fire - heal up!", name, level);
 		else
 			snprintf(buf, bufSize, "[5] %s Lv%d: stronger the lower your HP (up to %.0f)  -  costs %.0f HP, deals %.0f now",
 				name, level, LastStandMaxDamage(), LAST_STAND_COST, LastStandDamage());

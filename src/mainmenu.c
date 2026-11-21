@@ -16,6 +16,7 @@
 #include "mainmenu.h"
 #include "utils.h"
 #include "game.h"
+#include "howtoplay.h"
 
 
 CP_Font myFont;
@@ -34,7 +35,7 @@ void Font_EnsureLoaded(void)
 
 typedef struct { float x, y, w, h; const char* label; } MenuButton;
 
-static MenuButton s_playButton, s_quitButton;
+static MenuButton s_playButton, s_howButton, s_quitButton;
 static float      s_menuW = 1600.0f, s_menuH = 900.0f;
 static float      s_menuTime;
 static float      s_k = 1.0f;     // UI scale: 1.0 at 1600x900, smaller for smaller windows
@@ -72,7 +73,7 @@ static void M_Circle(float x, float y, float radius, CP_Color c)
 
 static void M_Rect(float x, float y, float w, float h, CP_Color c)
 {
-	CP_Settings_RectMode(CP_POSITION_CORNER);        
+	CP_Settings_RectMode(CP_POSITION_CORNER);
 	CP_Settings_NoStroke();
 	CP_Settings_Fill(c);
 	CP_Graphics_DrawRect(x, y, w, h);
@@ -154,20 +155,24 @@ void Main_Menu_Init(void)
 	s_menuTime = 0.0f;
 	s_k = (s_menuW / 1600.0f < s_menuH / 900.0f) ? s_menuW / 1600.0f : s_menuH / 900.0f;
 
-	s_playButton.w = 380.0f * s_k; 
+	s_playButton.w = 380.0f * s_k;
 	s_playButton.h = 70.0f * s_k;
 	s_playButton.x = (s_menuW - s_playButton.w) * 0.5f;
-	s_playButton.y = 320.0f * s_k;
+	s_playButton.y = 290.0f * s_k;
 	s_playButton.label = "PLAY";
 
+	s_howButton = s_playButton;
+	s_howButton.y = 375.0f * s_k;
+	s_howButton.label = "HOW TO PLAY";
+
 	s_quitButton = s_playButton;
-	s_quitButton.y = 410.0f * s_k;
+	s_quitButton.y = 460.0f * s_k;
 	s_quitButton.label = "QUIT";
 }
 
 void Main_Menu_Update(void)
 {
-	
+
 	float dt = CP_System_GetDt();
 	if (dt > 0.05f) dt = 0.05f;
 	s_menuTime += dt;
@@ -179,6 +184,11 @@ void Main_Menu_Update(void)
 	if ((click && M_ButtonHovered(&s_playButton, mx, my)) || CP_Input_KeyTriggered(KEY_ENTER) || CP_Input_KeyTriggered(KEY_SPACE))
 	{
 		CP_Engine_SetNextGameState(Game_Init, Game_Update, Game_Exit);
+		return;
+	}
+	if (click && M_ButtonHovered(&s_howButton, mx, my))
+	{
+		CP_Engine_SetNextGameState(HowToPlay_Init, HowToPlay_Update, HowToPlay_Exit);
 		return;
 	}
 	if (click && M_ButtonHovered(&s_quitButton, mx, my))
@@ -197,6 +207,7 @@ void Main_Menu_Update(void)
 	M_Text("Every bullet costs your blood.", s_menuW * 0.5f, 225.0f * s_k, 34.0f * s_k, CP_Color_Create(230, 230, 230, 255), true);
 
 	M_DrawButton(&s_playButton, mx, my);
+	M_DrawButton(&s_howButton, mx, my);
 	M_DrawButton(&s_quitButton, mx, my);
 
 	// how to play
@@ -221,6 +232,6 @@ void Main_Menu_Exit(void)
 {
 	CP_Sound_StopGroup(CP_SOUND_GROUP_0);
 	CP_Sound_Free(myMusic);
-    CP_Font_Free(myFont);
+	CP_Font_Free(myFont);
 	myFont = NULL;
 }
