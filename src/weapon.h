@@ -205,6 +205,19 @@ typedef struct
 	float radius, life;
 } Blast;
 
+// Live numbers for the stats panel next to the health bar (drawn by game.c).
+// They are rebuilt every frame, so they follow your HP, gun level, boost stacks and charge.
+
+typedef struct
+{
+	char  title[40];         // "LAST STAND  Lv2"  (Lv4 adds " MAX")
+	char  cost[48];          // what firing costs right now
+	char  damage[48];        // what a hit deals right now
+	char  extraLabel[12];    // label of the 4th row ("RATE", "BOOST", "RADIUS"...)
+	char  extraValue[48];    // value of the 4th row
+	bool  cantAfford;        // true when you don't have the HP to fire right now
+} WeaponStats;
+
 // Called by UpdateShots when a shot kills a zombie (index = its slot in s_zombies, killedBy = the gun that did it).
 typedef void (*ZombieKilledFn)(int index, WeaponType killedBy);
 
@@ -216,7 +229,8 @@ float       GetShotCost(WeaponType w);              // HP the gun would cost to 
 float       GetFireDelay(WeaponType w);             // seconds between shots
 const char* GetWeaponName(WeaponType w);            // the Lv4 guns get their evolved name
 CP_Color    GetWeaponColor(WeaponType w, int alpha); // barrel / crosshair / shot / pickup colour
-void        GetWeaponHudText(WeaponType w, char* buf, size_t bufSize);
+void        GetWeaponStats(WeaponType w, WeaponStats* out);
+
 #define UPGRADE_TEXT_LINES   3
 #define UPGRADE_TEXT_LEN     48
 void        GetUpgradeText(WeaponType w, int toLevel, char lines[UPGRADE_TEXT_LINES][UPGRADE_TEXT_LEN]);   // what upgrading to toLevel changes (upgrade cards)

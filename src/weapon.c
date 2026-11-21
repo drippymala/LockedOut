@@ -172,7 +172,10 @@ float GetShotCost(WeaponType w)
 	case W_HEALTH_LASER: return player.hp * LASER_COST_PERCENT;   // a quarter of whatever you have now
 	case W_BLOODRANG:    return RANG_COST * (float)RangThrowCount();
 	case W_BLOOD_BOMB:   return 0.0f;                             // paid while charging instead
-	case W_LAST_STAND:   return LAST_STAND_COST;   // always the full 3 HP, no free shots
+	case W_LAST_STAND:
+		// at the lowest HP you can shoot from, the shot is free (so it never locks up near death)
+		if (player.hp - LAST_STAND_COST < MIN_HP_AFTER_SHOT) return 0.0f;
+		return LAST_STAND_COST;
 	default:             return 1.0f;
 	}
 }
@@ -267,6 +270,91 @@ void GetWeaponHudText(WeaponType w, char* buf, size_t bufSize)
 	default:
 		snprintf(buf, bufSize, "[1] %s Lv%d: %.0f damage, flat cost per shot  -  costs %.1f HP now",
 			name, level, PistolDamage(), GetShotCost(w));
+		break;
+	}
+}
+
+// Live numbers for the stats panel next to the health bar (game.c draws it).
+void GetWeaponStats(WeaponType w, WeaponStats* out)
+{
+	float cost = GetShotCost(w);
+
+	snprintf(out->title, sizeof(out->title), "%s  Lv%d%s", GetWeaponName(w), GetWeaponLevel(w), IsEvolved(w) ? " MAX" : "");
+	out->cantAfford = (player.hp - cost < MIN_HP_AFTER_SHOT);   // same check HandleShooting uses before it fires
+
+	switch (w)
+	{
+	case W_HEALTH_LASER:
+		snprintf(out->cost, sizeof(out->cost), "%.1f HP  (%.0f%% of HP)", cost, LASER_COST_PERCENT * 100.0f);
+		snprintf(out->damage, sizeof(out->damage), "%.0f  (HP x %.2g)", player.hp * LaserMultiplier(), LaserMultiplier());
+		if (IsEvolved(w))
+		{
+			snprintf(out->extraLabel, sizeof(out->extraLabel), "HEAL");
+			snprintf(out->extraValue, sizeof(out->extraValue), "+%.0f HP per zombie hit", LASER_EVO_HEAL_PER_HIT);
+		}
+		else
+		{
+			snprintf(out->extraLabel, sizeof(out->extraLabel), "BEAM");
+			snprintf(out->extraValue, sizeof(out->extraValue), "pierces every zombie");
+		}
+		break;
+
+	case W_BLOODRANG:
+		if (AnyRangActive())
+		{
+			float stored = 0.0f;
+			for (int i = 0; i < MAX_RANGS; ++i)
+			{
+				if (s_rangs[i].active) stored += s_rangs[i].stored;
+			}
+			snprintf(out->cost, sizeof(out->cost), "catch it!  +%.0f HP back", stored * RangRefund());
+			out->cantAfford = false;   // it's out already: you can't throw another one anyway
+		}
+		else
+		{
+			snprintf(out->cost, sizeof(out->cost), "%.0f HP  (%.0f%% back)", cost, RangRefund() * 100.0f);
+		}
+		snprintf(out->damage, sizeof(out->damage), "%.0f", RangDamageWithBoost());
+		snprintf(out->extraLabel, sizeof(out->extraLabel), "BOOST");
+		snprintf(out->extraValue, sizeof(out->extraValue), "+%.0f%%  (%d/%d)",
+			RANG_BOOST_PER_STACK * 100.0f * (float)RangStacks(), RangStacks(), RangMaxStacks());
+		break;
+
+	case W_BLOOD_BOMB:
+		if (s_charging)
+		{
+			snprintf(out->cost, sizeof(out->cost), "%.0f / %.0f HP poured", s_chargeStored, s_chargeCap);
+			snprintf(out->damage, sizeof(out->damage), "%.0f", s_chargeStored * BombDamagePerHp());
+			snprintf(out->extraLabel, sizeof(out->extraLabel), "RADIUS");
+			snprintf(out->extraValue, sizeof(out->extraValue), "%.0f", BombBlastRadius(s_chargeStored));
+			out->cantAfford = false;
+		}
+		else
+		{
+			float cap = player.hp * BOMB_MAX_CHARGE_PERCENT;   // the most the orb could hold if you started charging now
+			snprintf(out->cost, sizeof(out->cost), "up to %.0f HP  (%.0f%% of HP)", cap, BOMB_MAX_CHARGE_PERCENT * 100.0f);
+			snprintf(out->damage, sizeof(out->damage), "%.1f per HP poured", BombDamagePerHp());
+			snprintf(out->extraLabel, sizeof(out->extraLabel), "MAX");
+			snprintf(out->extraValue, sizeof(out->extraValue), "%.0f dmg, radius %.0f", cap * BombDamagePerHp(), BombBlastRadius(cap));
+			out->cantAfford = (player.hp - MIN_HP_AFTER_SHOT < 0.5f);   // same check UpdateBombCharge uses
+		}
+		break;
+
+	case W_LAST_STAND:
+		if (cost <= 0.0f) snprintf(out->cost, sizeof(out->cost), "FREE");
+		else              snprintf(out->cost, sizeof(out->cost), "%.0f HP per shot", cost);
+		snprintf(out->damage, sizeof(out->damage), "%.0f  (max %.0f)", LastStandDamage(), LastStandMaxDamage());
+		snprintf(out->extraLabel, sizeof(out->extraLabel), "RATE");
+		snprintf(out->extraValue, sizeof(out->extraValue), "%.1f shots/sec", 1.0f / GetFireDelay(w));
+		break;
+
+	case W_PISTOL:
+	default:
+		snprintf(out->cost, sizeof(out->cost), "%.1f HP per shot", cost);
+		if (IsEvolved(W_PISTOL)) snprintf(out->damage, sizeof(out->damage), "%.0f x %d bullets", PistolDamage(), PISTOL_EVO_BULLETS);
+		else                     snprintf(out->damage, sizeof(out->damage), "%.0f", PistolDamage());
+		snprintf(out->extraLabel, sizeof(out->extraLabel), "RATE");
+		snprintf(out->extraValue, sizeof(out->extraValue), "%.1f shots/sec", 1.0f / GetFireDelay(w));
 		break;
 	}
 }
