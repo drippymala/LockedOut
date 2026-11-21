@@ -12,17 +12,22 @@
 #include <stdbool.h>
 #include "cprocessing.h"   // needed for CP_Vector
 
-#define MAX_ZOMBIES          128
+#define MAX_ZOMBIES             128
+#define BOSS_KNOCKBACK_SCALE    0.20f     // Bosses only take 20% bullet knockback
+#define BOSS_NAME               "CHARGER" // Default boss display name
 
-typedef enum { Z_WALKER, Z_RUNNER, Z_BRUTE, Z_BOSS } ZombieType;
+typedef enum {
+	// Regular Mobs
+	Z_WALKER,           // Basic horde zombie
+	Z_RUNNER,           // Fast, fragile rusher
+	Z_BRUTE,            // Slow, high HP tank
 
-// ---- wave 20 boss (just a huge, very tanky zombie for now: no special AI) ----
-#define BOSS_NAME            "PATIENT ZERO"
-#define BOSS_HP              9000.0f
-#define BOSS_SPEED           58.0f
-#define BOSS_RADIUS          62.0f
-#define BOSS_DAMAGE          35.0f
-#define BOSS_KNOCKBACK_SCALE 0.08f   // the boss only takes 8% of the normal knockback
+	// Milestone Bosses (every 5 waves)
+	Z_BOSS_CHARGER,     // Wave 5:  Dash charge
+	Z_BOSS_SHOOT,       // Wave 10: Shoots projectiles
+	Z_BOSS_SLOW,        // Wave 15: Melee/Slime slows player speed
+	Z_BOSS_FINAL        // Wave 20: Final Boss (Dash + Shoots Back + Slows on hit)
+} ZombieType;
 
 typedef struct
 {
@@ -33,18 +38,23 @@ typedef struct
 	float radius;
 	float hp, maxHp;
 	float speed, damage;
-	float attackTimer, hitFlash;
+	float attackTimer, swayPhase, swayAmp, hitFlash;
+
+	// Ability and dash tracking
+	float abilityTimer;
+	bool  isDashing;
+	float dashDuration;
+	CP_Vector dashDir;
 } Zombie;
 
-// "extern" = the array's memory is created in zombie.c,
-// and every file that includes zombie.h shares that same array.
+// Shared array across files
 extern Zombie s_zombies[MAX_ZOMBIES];
 
-void ResetZombies(void);              // clear every slot and restart the id counter (new game)
-int  CountAliveZombies(void);         // how many zombies are on screen right now
-void SpawnZombie(int wave);           // spawn one zombie at a screen edge, scaled to this wave
-void SpawnBoss(void);                 // spawn the wave 20 boss at a screen edge
-const Zombie* FindBoss(void);         // the boss if it is alive, otherwise NULL (for its health bar)
-void UpdateZombies(float deltaTime);  // chase the player and bite when touching
+void ResetZombies(void);              // Clear every slot and restart id counter
+int  CountAliveZombies(void);         // Active zombies currently alive
+void SpawnZombie(int wave);           // Spawn standard wave zombie
+void SpawnBoss(int wave);             // Spawn milestone boss for this wave
+const Zombie* FindBoss(void);         // Returns active boss pointer or NULL (for health bar)
+void UpdateZombies(float deltaTime);  // Movement and attack logic
 void DrawZombies(void);
-void SeparateZombies(void);           // push overlapping zombies apart (one pass)
+void SeparateZombies(void);           // Zombie-vs-zombie separation

@@ -433,7 +433,7 @@ static bool DamageZombie(int index, float damage, CP_Vector dir, float knockback
 {
 	Zombie* zombie = &s_zombies[index];
 
-	if (zombie->type == Z_BOSS) knockback *= BOSS_KNOCKBACK_SCALE;   // the boss barely budges
+	if (zombie->type >= Z_BOSS_CHARGER) knockback *= BOSS_KNOCKBACK_SCALE;;   // the boss barely budges
 
 	Sfx_Play(SFX_ZOMBIE_HIT);
 	zombie->hp -= damage;
