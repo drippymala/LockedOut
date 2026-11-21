@@ -26,6 +26,7 @@
     <ClCompile Include="..\src\mainmenu.c" />
     <ClCompile Include="..\src\player.c" />
     <ClCompile Include="..\src\sfx.c" />
+    <ClCompile Include="..\src\splash.c" />
     <ClCompile Include="..\src\utils.c" />
     <ClCompile Include="..\src\weapon.c" />
     <ClCompile Include="..\src\zombie.c" />
@@ -37,6 +38,7 @@
     <ClInclude Include="..\src\mainmenu.h" />
     <ClInclude Include="..\src\player.h" />
     <ClInclude Include="..\src\sfx.h" />
+    <ClInclude Include="..\src\splash.h" />
     <ClInclude Include="..\src\utils.h" />
     <ClInclude Include="..\src\weapon.h" />
     <ClInclude Include="..\src\zombie.h" />
