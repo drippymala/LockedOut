@@ -201,6 +201,41 @@ CP_Color GetHealthBarColor(float hp, float maxHp)
 	return Col(220, 50, 50, 255);
 }
 
+// Stats panel under the health bar: the current gun's cost and damage, updated live.
+// (x, y) = top-left corner, w = width. Returns the y of the panel's bottom edge.
+static float DrawGunStatsPanel(float x, float y, float w)
+{
+	WeaponStats st;
+	GetWeaponStats(player.weapon, &st);   // weapon.c: the numbers as they are right now
+
+	const float rowH = 28.0f;
+	const float panelH = rowH * 4.0f + 14.0f;
+	const float valueX = x + 108.0f;      // values start here, labels sit to the left of it
+	CP_Color gunColor = GetWeaponColor(player.weapon, 255);
+	CP_Color labelColor = Col(160, 160, 160, 255);
+
+	G_Rect(x - 4.0f, y, w + 8.0f, panelH, Col(0, 0, 0, 150));   // dark background
+	G_Rect(x - 4.0f, y, 5.0f, panelH, gunColor);                // accent bar in the gun's colour
+
+	float rowY = y + 7.0f + rowH * 0.5f;
+	G_Text(st.title, x + 14.0f, rowY, 24.0f, gunColor, AL_LEFT);
+	rowY += rowH;
+
+	G_Text("COST", x + 14.0f, rowY, 18.0f, labelColor, AL_LEFT);
+	if (st.cantAfford) G_Text("NOT ENOUGH HP", valueX, rowY, 22.0f, Col(255, 70, 70, 255), AL_LEFT);
+	else               G_Text(st.cost, valueX, rowY, 22.0f, Col(255, 150, 150, 255), AL_LEFT);
+	rowY += rowH;
+
+	G_Text("DAMAGE", x + 14.0f, rowY, 18.0f, labelColor, AL_LEFT);
+	G_Text(st.damage, valueX, rowY, 22.0f, Col(255, 230, 120, 255), AL_LEFT);
+	rowY += rowH;
+
+	G_Text(st.extraLabel, x + 14.0f, rowY, 18.0f, labelColor, AL_LEFT);
+	G_Text(st.extraValue, valueX, rowY, 22.0f, Col(215, 215, 215, 255), AL_LEFT);
+
+	return y + panelH;
+}
+
 static void DrawHud(void)
 {
 	float screenW = (float)CP_System_GetWindowWidth();
@@ -289,8 +324,8 @@ static void DrawHud(void)
 		G_Text(buf, bx + bw * 0.5f, by + bh * 0.5f, 20.0f, Col(255, 255, 255, 255), AL_CENTER);
 	}
 
-	// status lines under the health bar
-	float statusY = by + bh + 28.0f;
+	// gun stats panel under the health bar, then the status lines under the panel
+	float statusY = DrawGunStatsPanel(bx, by + bh + 16.0f, bw) + 22.0f;
 	if (player.bloodlust > 0.0f)
 	{
 		snprintf(buf, sizeof(buf), "BLOODLUST %.0fs  (kills heal +%.0f)", player.bloodlust, BLOODLUST_KILL_HEAL);
