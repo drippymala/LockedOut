@@ -16,12 +16,12 @@
 #include "sfx.h"      // player hurt sound
 
 #define ZOMBIE_ATTACK_COOLDOWN 0.30f   // seconds between bites from the same zombie
-#define MAX_RUNNER_SPEED       225.0f  // Cap runner speed so it never outruns the player
+#define MAX_RUNNER_SPEED       210.0f  // Cap runner speed so it never outruns the player
 
 Zombie     s_zombies[MAX_ZOMBIES];   // not static: shared through zombie.h
 static int s_nextZombieId = 1;       // unique id per zombie
 
-//for shooting boss
+// For shooting boss (Wave 10)
 typedef struct {
 	bool active;
 	CP_Vector pos;
@@ -45,7 +45,6 @@ void ResetZombies(void)
 	s_nextZombieId = 1;
 }
 
-//for zombie wave spawning
 // Counts how many zombies are currently alive on screen
 int CountAliveZombies(void)
 {
@@ -57,17 +56,18 @@ int CountAliveZombies(void)
 	return count;
 }
 
-//BOSS TYPES HERE
+/* =========================================================
+   Boss AI Functions
+   ========================================================= */
+
+   // Wave 5: Charger Boss
 static void chargerBoss(Zombie* z, CP_Vector moveDir, float dt)
 {
-	// If currently dashing, surge forward in the locked direction
 	if (z->isDashing)
 	{
 		z->dashDuration -= dt;
-		// Increased multiplier from 3.5f to 5.5f for a much faster burst
 		z->pos = CP_Vector_Add(z->pos, CP_Vector_Scale(z->dashDir, (z->speed * 5.5f) * dt));
 
-		// When dash time runs out, stop dashing and reset cooldown
 		if (z->dashDuration <= 0.0f)
 		{
 			z->isDashing = false;
@@ -76,21 +76,19 @@ static void chargerBoss(Zombie* z, CP_Vector moveDir, float dt)
 	}
 	else
 	{
-		// Normal walking while waiting to dash
 		z->pos = CP_Vector_Add(z->pos, CP_Vector_Scale(moveDir, z->speed * dt));
 
-		// Cooldown reached -> start dash!
 		if (z->abilityTimer <= 0.0f)
 		{
 			z->isDashing = true;
 			z->dashDir = moveDir;    // Lock straight toward player
-			z->dashDuration = 0.75f; // Increased from 0.5s to 0.75s to travel farther
+			z->dashDuration = 0.75f; // Dash lasts 0.75s
 			z->hitFlash = 0.2f;      // Quick white flash visual cue
 		}
 	}
 }
 
-// Spawn 1 enemy projectile from boss toward player
+// Wave 10: Spitter Boss helpers
 static void ShootAtPlayer(CP_Vector fromPos, CP_Vector toPlayer)
 {
 	for (int i = 0; i < 8; ++i)
@@ -100,7 +98,7 @@ static void ShootAtPlayer(CP_Vector fromPos, CP_Vector toPlayer)
 		s_bossBullets[i].active = true;
 		s_bossBullets[i].pos = fromPos;
 		s_bossBullets[i].dir = GetNormalizedDirection(toPlayer);
-		s_bossBullets[i].life = 3.5f; // Lasts 3.5 seconds
+		s_bossBullets[i].life = 3.5f;
 		return;
 	}
 }
@@ -115,12 +113,34 @@ static void shootBoss(Zombie* z, CP_Vector toPlayer, CP_Vector moveDir, float dt
 	if (z->abilityTimer <= 0.0f)
 	{
 		ShootAtPlayer(z->pos, toPlayer);
-		z->abilityTimer = 1.0f; // Reset shoot cooldown
-		z->hitFlash = 0.15f;    // Flash cue before projectile leaves
+		z->abilityTimer = 2.0f; // Shoot cooldown
+		z->hitFlash = 0.15f;
 	}
 }
 
-// Dedicated function to spawn milestone bosses
+// Wave 15: Pull Boss (Gravitational vortex suction)
+static void pullBoss(Zombie* z, CP_Vector toPlayer, CP_Vector moveDir, float dt)
+{
+	// 1. Slowly walk toward the player
+	z->pos = CP_Vector_Add(z->pos, CP_Vector_Scale(moveDir, z->speed * dt));
+
+	// 2. Gravitational pull if player is within 300px
+	float dist = CP_Vector_Length(toPlayer);
+	if (dist < 300.0f && dist > 15.0f)
+	{
+		// Direction pulling toward the boss
+		CP_Vector pullDir = CP_Vector_Scale(moveDir, -1.0f);
+		// Force increases the closer the player gets
+		float pullForce = (1.0f - (dist / 300.0f)) * 195.0f;
+
+		player.position = CP_Vector_Add(player.position, CP_Vector_Scale(pullDir, pullForce * dt));
+	}
+}
+
+/* =========================================================
+   Spawning
+   ========================================================= */
+
 void SpawnBoss(int wave)
 {
 	int slot = -1;
@@ -139,27 +159,36 @@ void SpawnBoss(int wave)
 	z->id = s_nextZombieId++;
 	z->attackTimer = 0.0f;
 	z->hitFlash = 0.0f;
-	z->abilityTimer = 2.0f; // First action after 2 seconds
 	z->isDashing = false;
 
-	// Pick boss archetype based on wave milestone
 	switch (wave)
 	{
-	case 10:
-		z->type = Z_BOSS_SHOOT;   // Deep purple Spitter Boss
-		z->maxHp = 750.0f;
-		z->speed = 75.0f;          // Moves steadily while shooting
-		z->radius = 32.0f;
-		z->damage = 22.0f;
-		z->abilityTimer = 1.0f;     // Shoots every 1 second
+	case 15:
+		z->type = Z_BOSS_PULL;   // Pull / Vortex Boss
+		z->maxHp = 1000.0f;       // High health tank
+		z->speed = 55.0f;         // Slow walking speed
+		z->radius = 40.0f;         // Giant body size
+		z->damage = 25.0f;
+		z->abilityTimer = 0.0f;
 		break;
+
+	case 10:
+		z->type = Z_BOSS_SHOOT;  // Spitter Boss
+		z->maxHp = 750.0f;
+		z->speed = 75.0f;
+		z->radius = 32.0f;
+		z->damage = 18.0f;
+		z->abilityTimer = 2.0f;
+		break;
+
 	case 5:
 	default:
-		z->type = Z_BOSS_CHARGER; // Orange Charger Boss
+		z->type = Z_BOSS_CHARGER;// Charger Boss
 		z->maxHp = 450.0f;
 		z->speed = 90.0f;
-		z->radius = 35.0f;         // Big size
+		z->radius = 35.0f;
 		z->damage = 25.0f;
+		z->abilityTimer = 2.0f;
 		break;
 	}
 
@@ -167,7 +196,6 @@ void SpawnBoss(int wave)
 	z->pos = CP_Vector_Set(windowWidth * 0.5f, -50.0f); // Top center
 }
 
-//spawn zombies
 void SpawnZombie(int wave)
 {
 	int slot = -1;
@@ -212,7 +240,7 @@ void SpawnZombie(int wave)
 	{
 		z->type = Z_RUNNER;
 		z->maxHp = 17.0f;
-		z->speed = 170.0f;
+		z->speed = 160.0f;
 		z->radius = 12.0f;
 		z->damage = 6.0f;
 	}
@@ -241,24 +269,20 @@ void SpawnZombie(int wave)
 	int edge = (int)CP_Random_RangeFloat(0.0f, 4.0f);
 	switch (edge)
 	{
-	case 0:
-		z->pos = CP_Vector_Set(CP_Random_RangeFloat(0.0f, windowWidth), -margin);
-		break;
-	case 1:
-		z->pos = CP_Vector_Set(windowWidth + margin, CP_Random_RangeFloat(0.0f, windowHeight));
-		break;
-	case 2:
-		z->pos = CP_Vector_Set(CP_Random_RangeFloat(0.0f, windowWidth), windowHeight + margin);
-		break;
-	default:
-		z->pos = CP_Vector_Set(-margin, CP_Random_RangeFloat(0.0f, windowHeight));
-		break;
+	case 0:  z->pos = CP_Vector_Set(CP_Random_RangeFloat(0.0f, windowWidth), -margin); break;
+	case 1:  z->pos = CP_Vector_Set(windowWidth + margin, CP_Random_RangeFloat(0.0f, windowHeight)); break;
+	case 2:  z->pos = CP_Vector_Set(CP_Random_RangeFloat(0.0f, windowWidth), windowHeight + margin); break;
+	default: z->pos = CP_Vector_Set(-margin, CP_Random_RangeFloat(0.0f, windowHeight)); break;
 	}
 }
 
+/* =========================================================
+   Render & Update
+   ========================================================= */
+
 void DrawZombies(void)
 {
-	// 1. Draw Boss Bullets (Deep Purple with glowing core)
+	// 1. Draw Boss Bullets
 	for (int i = 0; i < 8; ++i)
 	{
 		if (!s_bossBullets[i].active) continue;
@@ -266,15 +290,12 @@ void DrawZombies(void)
 		float bx = s_bossBullets[i].pos.x;
 		float by = s_bossBullets[i].pos.y;
 
-		// Deep purple main orb
 		G_Circle(bx, by, 10.0f, Col(130, 20, 200, 255));
-		// Dark outline
 		G_Ring(bx, by, 10.0f, 2.0f, Col(40, 5, 70, 255));
-		// Glowing violet center
 		G_Circle(bx, by, 5.0f, Col(220, 140, 255, 255));
 	}
 
-	// 2. Draw Zombies
+	// 2. Draw Zombies & Bosses
 	for (int i = 0; i < MAX_ZOMBIES; ++i)
 	{
 		const Zombie* z = &s_zombies[i];
@@ -286,17 +307,25 @@ void DrawZombies(void)
 
 		if (z->type == Z_BOSS_CHARGER)
 		{
-			// Charger Boss: Big Orange
-			skinColor = (z->hitFlash > 0.0f) ? Col(255, 255, 255, 255) : Col(240, 120, 30, 255);
+			skinColor = (z->hitFlash > 0.0f) ? Col(255, 255, 255, 255) : Col(240, 120, 30, 255); // Orange
 			armThickness = 14.0f;
 			armLength = r * 1.3f;
 		}
 		else if (z->type == Z_BOSS_SHOOT)
 		{
-			// Spitter Boss: Deep Purple skin
-			skinColor = (z->hitFlash > 0.0f) ? Col(255, 255, 255, 255) : Col(125, 30, 185, 255);
+			skinColor = (z->hitFlash > 0.0f) ? Col(255, 255, 255, 255) : Col(125, 30, 185, 255); // Deep Purple
 			armThickness = 12.0f;
 			armLength = r * 1.3f;
+		}
+		else if (z->type == Z_BOSS_PULL)
+		{
+			// Pull Boss: Dark teal/vortex blue with heavy arms
+			skinColor = (z->hitFlash > 0.0f) ? Col(255, 255, 255, 255) : Col(30, 160, 180, 255);
+			armThickness = 18.0f;
+			armLength = r * 1.4f;
+
+			// Gravitational vortex danger ring
+			G_Ring(z->pos.x, z->pos.y, 300.0f, 2.0f, Col(30, 160, 180, 80));
 		}
 		else if (z->type == Z_WALKER)
 		{
@@ -318,8 +347,8 @@ void DrawZombies(void)
 		}
 
 		CP_Vector toPlayer = CP_Vector_Subtract(player.position, z->pos);
-		CP_Vector fwd = GetNormalizedDirection(toPlayer);     // Points straight at player
-		CP_Vector side = CP_Vector_Set(-fwd.y, fwd.x);        // 90 degrees sideways
+		CP_Vector fwd = GetNormalizedDirection(toPlayer);
+		CP_Vector side = CP_Vector_Set(-fwd.y, fwd.x);
 
 		CP_Vector leftShoulder = CP_Vector_Subtract(z->pos, CP_Vector_Scale(side, r));
 		CP_Vector rightShoulder = CP_Vector_Add(z->pos, CP_Vector_Scale(side, r));
@@ -353,22 +382,19 @@ void UpdateZombies(float deltaTime)
 	{
 		if (!s_bossBullets[i].active) continue;
 
-		// Move forward at 320 px/s
 		s_bossBullets[i].pos = CP_Vector_Add(s_bossBullets[i].pos,
 			CP_Vector_Scale(s_bossBullets[i].dir, 320.0f * deltaTime));
 		s_bossBullets[i].life -= deltaTime;
 
-		// Hit player check (10px bullet radius + player radius)
 		if (CP_Vector_Distance(s_bossBullets[i].pos, player.position) <= 10.0f + PLAYER_RADIUS)
 		{
-			player.hp -= 18.0f; // Boss bullet damage
+			player.hp -= 18.0f;
 			player.combatTimer = 0.0f;
 			Sfx_Play(SFX_PLAYER_HURT);
 			s_bossBullets[i].active = false;
 			continue;
 		}
 
-		// Despawn on expiration or screen departure
 		if (s_bossBullets[i].life <= 0.0f ||
 			s_bossBullets[i].pos.x < -30.0f || s_bossBullets[i].pos.x > windowWidth + 30.0f ||
 			s_bossBullets[i].pos.y < -30.0f || s_bossBullets[i].pos.y > windowHeight + 30.0f)
@@ -401,7 +427,7 @@ void UpdateZombies(float deltaTime)
 		CP_Vector toPlayer = CP_Vector_Subtract(player.position, z->pos);
 		CP_Vector moveDir = GetNormalizedDirection(toPlayer);
 
-		// Movement and Boss Abilities
+		// Boss Behaviors & Regular Movement
 		if (z->type == Z_BOSS_CHARGER)
 		{
 			chargerBoss(z, moveDir, deltaTime);
@@ -410,12 +436,16 @@ void UpdateZombies(float deltaTime)
 		{
 			shootBoss(z, toPlayer, moveDir, deltaTime);
 		}
+		else if (z->type == Z_BOSS_PULL)
+		{
+			pullBoss(z, toPlayer, moveDir, deltaTime);
+		}
 		else
 		{
 			z->pos = CP_Vector_Add(z->pos, CP_Vector_Scale(moveDir, z->speed * deltaTime));
 		}
 
-		// Hit detection including arm reach
+		// Melee Bite Hit Detection
 		float reach = z->radius * 0.8f;
 		float touchDist = PLAYER_RADIUS + z->radius + reach;
 
@@ -432,7 +462,6 @@ void UpdateZombies(float deltaTime)
 	}
 }
 
-// Zombie vs zombie: pushes every overlapping pair apart so zombies don't stack on each other.
 void SeparateZombies(void)
 {
 	for (int i = 0; i < MAX_ZOMBIES; ++i)
@@ -447,7 +476,6 @@ void SeparateZombies(void)
 	}
 }
 
-// Returns active boss pointer or NULL
 const Zombie* FindBoss(void)
 {
 	for (int i = 0; i < MAX_ZOMBIES; ++i)

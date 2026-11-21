@@ -388,7 +388,7 @@ static void DrawHud(void)
 
 		const char* bName = (boss->type == Z_BOSS_CHARGER) ? "CHARGER" :
 			(boss->type == Z_BOSS_SHOOT) ? "SPITTER" :
-			(boss->type == Z_BOSS_SLOW) ? "SLIME" : "TYRANT";
+			(boss->type == Z_BOSS_PULL) ? "PULL`" : "TYRANT";
 
 		G_Text(bName, screenW * 0.5f, bossY - 20.0f, 26.0f, Col(220, 150, 255, 255), AL_CENTER);
 		G_Rect(bossX - 4.0f, bossY - 4.0f, bossW + 8.0f, bossH + 8.0f, Col(0, 0, 0, 200));
