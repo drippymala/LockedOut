@@ -19,6 +19,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\src\credits.c" />
     <ClCompile Include="..\src\game.c" />
     <ClCompile Include="..\src\howtoplay.c" />
     <ClCompile Include="..\src\main.c" />
@@ -30,6 +31,7 @@
     <ClCompile Include="..\src\zombie.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\src\credits.h" />
     <ClInclude Include="..\src\game.h" />
     <ClInclude Include="..\src\howtoplay.h" />
     <ClInclude Include="..\src\mainmenu.h" />

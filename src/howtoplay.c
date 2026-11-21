@@ -269,6 +269,5 @@ void HowToPlay_Update(void)
 
 void HowToPlay_Exit(void)
 {
-	CP_Font_Free(myFont);   // same as the other states: free the font, the next state loads it again
-	myFont = NULL;
+	// the font stays loaded (see Main_Menu_Exit), so going back to the menu is instant
 }
