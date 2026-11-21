@@ -154,7 +154,7 @@ static void UpdatePlayerMovementAndAim(float deltaTime)
 	// After 5 seconds of inactivity, slowly regenerate HP (e.g., 5 HP per second)
 	if (player.combatTimer >= 5.0f && player.hp < player.maxHp)
 	{
-		float regenRate = 5.0f; // Amount of HP healed per second
+		float regenRate = 10.0f; // Amount of HP healed per second
 		player.hp += regenRate * deltaTime;
 
 		// Clamp so it never exceeds max HP
