@@ -21,12 +21,26 @@
 Zombie     s_zombies[MAX_ZOMBIES];   // not static: shared through zombie.h
 static int s_nextZombieId = 1;       // unique id per zombie
 
+//for shooting boss
+typedef struct {
+	bool active;
+	CP_Vector pos;
+	CP_Vector dir;
+	float life;
+} EnemyBullet;
+
+static EnemyBullet s_bossBullets[8];
+
 // Clears every zombie slot and restarts the id counter. Called from Game_Init.
 void ResetZombies(void)
 {
 	for (int i = 0; i < MAX_ZOMBIES; ++i)
 	{
 		s_zombies[i].active = false;
+	}
+	for (int i = 0; i < 8; ++i)
+	{
+		s_bossBullets[i].active = false;
 	}
 	s_nextZombieId = 1;
 }
@@ -50,7 +64,8 @@ static void chargerBoss(Zombie* z, CP_Vector moveDir, float dt)
 	if (z->isDashing)
 	{
 		z->dashDuration -= dt;
-		z->pos = CP_Vector_Add(z->pos, CP_Vector_Scale(z->dashDir, (z->speed * 3.5f) * dt));
+		// Increased multiplier from 3.5f to 5.5f for a much faster burst
+		z->pos = CP_Vector_Add(z->pos, CP_Vector_Scale(z->dashDir, (z->speed * 5.5f) * dt));
 
 		// When dash time runs out, stop dashing and reset cooldown
 		if (z->dashDuration <= 0.0f)
@@ -68,10 +83,40 @@ static void chargerBoss(Zombie* z, CP_Vector moveDir, float dt)
 		if (z->abilityTimer <= 0.0f)
 		{
 			z->isDashing = true;
-			z->dashDir = moveDir;   // Lock straight toward player
-			z->dashDuration = 0.5f; // Dash lasts 0.5s
-			z->hitFlash = 0.2f;     // Quick white flash visual cue
+			z->dashDir = moveDir;    // Lock straight toward player
+			z->dashDuration = 0.75f; // Increased from 0.5s to 0.75s to travel farther
+			z->hitFlash = 0.2f;      // Quick white flash visual cue
 		}
+	}
+}
+
+// Spawn 1 enemy projectile from boss toward player
+static void ShootAtPlayer(CP_Vector fromPos, CP_Vector toPlayer)
+{
+	for (int i = 0; i < 8; ++i)
+	{
+		if (s_bossBullets[i].active) continue;
+
+		s_bossBullets[i].active = true;
+		s_bossBullets[i].pos = fromPos;
+		s_bossBullets[i].dir = GetNormalizedDirection(toPlayer);
+		s_bossBullets[i].life = 3.5f; // Lasts 3.5 seconds
+		return;
+	}
+}
+
+static void shootBoss(Zombie* z, CP_Vector toPlayer, CP_Vector moveDir, float dt)
+{
+	// 1. Walk toward player
+	z->pos = CP_Vector_Add(z->pos, CP_Vector_Scale(moveDir, z->speed * dt));
+
+	// 2. Count down and shoot
+	z->abilityTimer -= dt;
+	if (z->abilityTimer <= 0.0f)
+	{
+		ShootAtPlayer(z->pos, toPlayer);
+		z->abilityTimer = 1.0f; // Reset shoot cooldown
+		z->hitFlash = 0.15f;    // Flash cue before projectile leaves
 	}
 }
 
@@ -94,17 +139,25 @@ void SpawnBoss(int wave)
 	z->id = s_nextZombieId++;
 	z->attackTimer = 0.0f;
 	z->hitFlash = 0.0f;
-	z->abilityTimer = 2.0f; // First charge after 2 seconds
+	z->abilityTimer = 2.0f; // First action after 2 seconds
 	z->isDashing = false;
 
 	// Pick boss archetype based on wave milestone
 	switch (wave)
 	{
+	case 10:
+		z->type = Z_BOSS_SHOOT;   // Deep purple Spitter Boss
+		z->maxHp = 750.0f;
+		z->speed = 75.0f;          // Moves steadily while shooting
+		z->radius = 32.0f;
+		z->damage = 22.0f;
+		z->abilityTimer = 1.0f;     // Shoots every 1 second
+		break;
 	case 5:
 	default:
 		z->type = Z_BOSS_CHARGER; // Orange Charger Boss
-		z->maxHp = 600.0f;
-		z->speed = 80.0f;
+		z->maxHp = 450.0f;
+		z->speed = 90.0f;
 		z->radius = 35.0f;         // Big size
 		z->damage = 25.0f;
 		break;
@@ -117,7 +170,6 @@ void SpawnBoss(int wave)
 //spawn zombies
 void SpawnZombie(int wave)
 {
-	//find inactive slot in zombie arr to spawn new zombie
 	int slot = -1;
 	for (int i = 0; i < MAX_ZOMBIES; ++i)
 	{
@@ -127,21 +179,16 @@ void SpawnZombie(int wave)
 			break;
 		}
 	}
-	if (slot < 0) return; // All slots full
+	if (slot < 0) return;
 
-	// Wave difficulty scaling
-	//chance for runner starts at wave 3,with a max of 35% chance at wave 6 (increase by 7% per wave)
 	float runnerChance = (wave >= 3) ? (0.07f * (float)(wave - 2)) : 0.0f;
 	if (runnerChance > 0.35f) runnerChance = 0.35f;
 
-	//chance for brute starts at wave 5, with a max of 18% chance at wave 9 (increase by 4% per wave)
 	float bruteChance = (wave >= 5) ? (0.04f * (float)(wave - 4)) : 0.0f;
 	if (bruteChance > 0.18f) bruteChance = 0.18f;
 
-	//health scales by 10% per wave, speed scales by 3% per wave (max 50% faster), damage scales by 5% per wave
 	float hpMul = 1.0f + 0.10f * (float)(wave - 1);
 	float spdMul = 1.0f + 0.03f * (float)(wave - 1);
-	//caps speed at 1.5 times of based speed
 	if (spdMul > 1.5f) spdMul = 1.5f;
 
 	float dmgMul = 1.0f + 0.05f * (float)(wave - 1);
@@ -153,37 +200,35 @@ void SpawnZombie(int wave)
 	z->abilityTimer = 0.0f;
 	z->isDashing = false;
 
-	// Pick zombie archetype: check brute first, then runner, else walker
 	if (CP_Random_RangeFloat(0.0f, 1.0f) < bruteChance)
 	{
 		z->type = Z_BRUTE;
 		z->maxHp = 200.0f;
 		z->speed = 62.0f;
 		z->radius = 26.0f;
-		z->damage = 22.0f;
+		z->damage = 20.0f;
 	}
 	else if (CP_Random_RangeFloat(0.0f, 1.0f) < runnerChance)
 	{
 		z->type = Z_RUNNER;
-		z->maxHp = 20.0f;
-		z->speed = 190.0f;
+		z->maxHp = 17.0f;
+		z->speed = 170.0f;
 		z->radius = 12.0f;
 		z->damage = 6.0f;
 	}
 	else
 	{
 		z->type = Z_WALKER;
-		z->maxHp = 30.0f;
+		z->maxHp = 25.0f;
 		z->speed = 95.0f;
 		z->radius = 15.0f;
-		z->damage = 10.0f;
+		z->damage = 8.0f;
 	}
 
 	z->maxHp *= hpMul;
 	z->speed *= spdMul;
 	z->damage *= dmgMul;
 
-	// Cap Runner speed so it never becomes impossible to kite
 	if (z->type == Z_RUNNER && z->speed > MAX_RUNNER_SPEED)
 	{
 		z->speed = MAX_RUNNER_SPEED;
@@ -192,22 +237,20 @@ void SpawnZombie(int wave)
 	z->hp = z->maxHp;
 	z->attackTimer = 0.0f;
 
-	// Spawn just outside a random edge (0 = top, 1 = right, 2 = bottom, 3 = left)
 	const float margin = 40.0f;
 	int edge = (int)CP_Random_RangeFloat(0.0f, 4.0f);
-	//where to spawn zombie based on edge
 	switch (edge)
 	{
-	case 0:  // Top
+	case 0:
 		z->pos = CP_Vector_Set(CP_Random_RangeFloat(0.0f, windowWidth), -margin);
 		break;
-	case 1:  // Right
+	case 1:
 		z->pos = CP_Vector_Set(windowWidth + margin, CP_Random_RangeFloat(0.0f, windowHeight));
 		break;
-	case 2:  // Bottom
+	case 2:
 		z->pos = CP_Vector_Set(CP_Random_RangeFloat(0.0f, windowWidth), windowHeight + margin);
 		break;
-	default: // Left
+	default:
 		z->pos = CP_Vector_Set(-margin, CP_Random_RangeFloat(0.0f, windowHeight));
 		break;
 	}
@@ -215,6 +258,23 @@ void SpawnZombie(int wave)
 
 void DrawZombies(void)
 {
+	// 1. Draw Boss Bullets (Deep Purple with glowing core)
+	for (int i = 0; i < 8; ++i)
+	{
+		if (!s_bossBullets[i].active) continue;
+
+		float bx = s_bossBullets[i].pos.x;
+		float by = s_bossBullets[i].pos.y;
+
+		// Deep purple main orb
+		G_Circle(bx, by, 10.0f, Col(130, 20, 200, 255));
+		// Dark outline
+		G_Ring(bx, by, 10.0f, 2.0f, Col(40, 5, 70, 255));
+		// Glowing violet center
+		G_Circle(bx, by, 5.0f, Col(220, 140, 255, 255));
+	}
+
+	// 2. Draw Zombies
 	for (int i = 0; i < MAX_ZOMBIES; ++i)
 	{
 		const Zombie* z = &s_zombies[i];
@@ -224,12 +284,18 @@ void DrawZombies(void)
 		CP_Color skinColor;
 		float armThickness, armLength;
 
-		// 1. Pick colors and arm size based on archetype
 		if (z->type == Z_BOSS_CHARGER)
 		{
-			// Charger Boss: Big, bright Orange with heavy arms
+			// Charger Boss: Big Orange
 			skinColor = (z->hitFlash > 0.0f) ? Col(255, 255, 255, 255) : Col(240, 120, 30, 255);
 			armThickness = 14.0f;
+			armLength = r * 1.3f;
+		}
+		else if (z->type == Z_BOSS_SHOOT)
+		{
+			// Spitter Boss: Deep Purple skin
+			skinColor = (z->hitFlash > 0.0f) ? Col(255, 255, 255, 255) : Col(125, 30, 185, 255);
+			armThickness = 12.0f;
 			armLength = r * 1.3f;
 		}
 		else if (z->type == Z_WALKER)
@@ -251,29 +317,23 @@ void DrawZombies(void)
 			armLength = r * 1.4f;
 		}
 
-		// 2. Vector Math: Find forward direction and sideways direction
 		CP_Vector toPlayer = CP_Vector_Subtract(player.position, z->pos);
 		CP_Vector fwd = GetNormalizedDirection(toPlayer);     // Points straight at player
 		CP_Vector side = CP_Vector_Set(-fwd.y, fwd.x);        // 90 degrees sideways
 
-		// 3. Find the left and right shoulder positions
 		CP_Vector leftShoulder = CP_Vector_Subtract(z->pos, CP_Vector_Scale(side, r));
 		CP_Vector rightShoulder = CP_Vector_Add(z->pos, CP_Vector_Scale(side, r));
 
-		// 4. Find the hand positions
 		CP_Vector reach = CP_Vector_Scale(fwd, armLength);
 		CP_Vector leftHand = CP_Vector_Add(leftShoulder, reach);
 		CP_Vector rightHand = CP_Vector_Add(rightShoulder, reach);
 
-		// 5. Draw arms
 		DrawColoredLine(leftShoulder.x, leftShoulder.y, leftHand.x, leftHand.y, armThickness, skinColor);
 		DrawColoredLine(rightShoulder.x, rightShoulder.y, rightHand.x, rightHand.y, armThickness, skinColor);
 
-		// 6. Draw head circle
 		G_Circle(z->pos.x, z->pos.y, r, skinColor);
-		G_Ring(z->pos.x, z->pos.y, r, (z->type == Z_BOSS_CHARGER ? 3.5f : 2.0f), Col(20, 35, 20, 255));
+		G_Ring(z->pos.x, z->pos.y, r, (z->type >= Z_BOSS_CHARGER ? 3.5f : 2.0f), Col(20, 35, 20, 255));
 
-		// 7. Draw floating health bar (if damaged)
 		if (z->hp < z->maxHp)
 		{
 			float barW = r * 2.4f;
@@ -288,44 +348,74 @@ void DrawZombies(void)
 
 void UpdateZombies(float deltaTime)
 {
+	// 1. Move and update boss bullets
+	for (int i = 0; i < 8; ++i)
+	{
+		if (!s_bossBullets[i].active) continue;
+
+		// Move forward at 320 px/s
+		s_bossBullets[i].pos = CP_Vector_Add(s_bossBullets[i].pos,
+			CP_Vector_Scale(s_bossBullets[i].dir, 320.0f * deltaTime));
+		s_bossBullets[i].life -= deltaTime;
+
+		// Hit player check (10px bullet radius + player radius)
+		if (CP_Vector_Distance(s_bossBullets[i].pos, player.position) <= 10.0f + PLAYER_RADIUS)
+		{
+			player.hp -= 18.0f; // Boss bullet damage
+			player.combatTimer = 0.0f;
+			Sfx_Play(SFX_PLAYER_HURT);
+			s_bossBullets[i].active = false;
+			continue;
+		}
+
+		// Despawn on expiration or screen departure
+		if (s_bossBullets[i].life <= 0.0f ||
+			s_bossBullets[i].pos.x < -30.0f || s_bossBullets[i].pos.x > windowWidth + 30.0f ||
+			s_bossBullets[i].pos.y < -30.0f || s_bossBullets[i].pos.y > windowHeight + 30.0f)
+		{
+			s_bossBullets[i].active = false;
+		}
+	}
+
+	// 2. Update zombies
 	for (int i = 0; i < MAX_ZOMBIES; ++i)
 	{
 		Zombie* z = &s_zombies[i];
 		if (!z->active) continue;
 
-		// 1. Reduce hit flash timer
 		if (z->hitFlash > 0.0f)
 		{
 			z->hitFlash -= deltaTime;
 		}
 
-		// 2. Count down attack cooldown continuously while approaching
 		if (z->attackTimer > 0.0f)
 		{
 			z->attackTimer -= deltaTime;
 		}
 
-		// 3. Count down ability timer
-		if (z->abilityTimer > 0.0f && !z->isDashing)
+		if (z->abilityTimer > 0.0f && !z->isDashing && z->type != Z_BOSS_SHOOT)
 		{
 			z->abilityTimer -= deltaTime;
 		}
 
-		// 4. Steer toward player
 		CP_Vector toPlayer = CP_Vector_Subtract(player.position, z->pos);
 		CP_Vector moveDir = GetNormalizedDirection(toPlayer);
 
-		// 5. Move: Charger Boss uses dash logic, regular zombies use simple walk
+		// Movement and Boss Abilities
 		if (z->type == Z_BOSS_CHARGER)
 		{
 			chargerBoss(z, moveDir, deltaTime);
+		}
+		else if (z->type == Z_BOSS_SHOOT)
+		{
+			shootBoss(z, toPlayer, moveDir, deltaTime);
 		}
 		else
 		{
 			z->pos = CP_Vector_Add(z->pos, CP_Vector_Scale(moveDir, z->speed * deltaTime));
 		}
 
-		// 6. Hit detection including arm reach
+		// Hit detection including arm reach
 		float reach = z->radius * 0.8f;
 		float touchDist = PLAYER_RADIUS + z->radius + reach;
 
@@ -356,7 +446,8 @@ void SeparateZombies(void)
 		}
 	}
 }
-//this to find the bossesw
+
+// Returns active boss pointer or NULL
 const Zombie* FindBoss(void)
 {
 	for (int i = 0; i < MAX_ZOMBIES; ++i)
