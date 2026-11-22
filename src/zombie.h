@@ -12,6 +12,7 @@ typedef enum {
     Z_BOSS_CHARGER,     // Wave 5
     Z_BOSS_SHOOT,        // Wave 10
 	Z_BOSS_PULL,         // Wave 15
+	Z_BOSS_FINAL 	  // Wave 20
 } ZombieType;
 
 typedef struct {

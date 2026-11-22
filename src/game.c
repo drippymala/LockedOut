@@ -725,19 +725,30 @@ static void OnZombieKilled(int index, WeaponType killedBy)
 static void StartWave(void)
 {
 	s_wave++;
-	s_toSpawn = 4 + (4 * s_wave);
 	s_spawnTimer = 0.0f;
 	s_waveClearTimer = 0.0f;
 	s_waveIntroTimer = s_cheatSkipping ? CHEAT_SKIP_INTRO : WAVE_INTRO_TIME;
 	s_cheatSkipping = false;
 
-	// Milestone Boss spawn (every 5 waves)
-	if (s_wave % 5 == 0)
+	// Final Boss Wave (Solo Boss, no normal zombies)
+	if (s_wave == 20)
 	{
-		SpawnBoss(s_wave);
+		ResetZombies();      // Clear any leftover zombies
+		SpawnBoss(20);       // Spawn the Final Boss (Tyrant)
+		s_toSpawn = 0;       // Stop all regular zombie spawns
+	}
+	else
+	{
+		// Normal zombie count for non-final waves
+		s_toSpawn = 4 + (4 * s_wave);
+
+		// Milestone Boss spawn (Wave 5, 10, 15) alongside standard mobs
+		if (s_wave % 5 == 0)
+		{
+			SpawnBoss(s_wave);
+		}
 	}
 }
-
 static void UpdateWave(float deltaTime)
 {
 	if (s_waveIntroTimer > 0.0f)
