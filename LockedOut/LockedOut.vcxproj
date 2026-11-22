@@ -192,7 +192,7 @@ xcopy "$(SolutionDir)Extern\CProcessing\lib\x64\fmodL.dll" "$(OutDir)" /s /r /y 
       </Command>
     </PreBuildEvent>
     <PostBuildEvent>
-      <Command>copy "$(SolutionDir)Assets\*" "$(OutDir)Assets\" /s /r /y /q
+      <Command>xcopy "$(SolutionDir)Assets\*" "$(OutDir)Assets\" /s /r /y /q
 xcopy "$(SolutionDir)Extern\CProcessing\lib\x64\CProcessing.dll" "$(OutDir)" /s /r /y /q
 xcopy "$(SolutionDir)Extern\CProcessing\lib\x64\fmod.dll" "$(OutDir)" /s /r /y /q</Command>
     </PostBuildEvent>
