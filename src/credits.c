@@ -51,6 +51,14 @@ static const CreditLine s_lines[] =
 	{ CL_NAME,    "Tommy Tan" },
 	{ CL_GAP,     "" },
 
+	{ CL_HEADING, "MUSIC" },
+	{ CL_NAME,    "Title music:  \"8 Bit Dungeon Boss\"  by Kevin MacLeod (incompetech.com)" },
+	{ CL_NAME,    "Licensed under Creative Commons: By Attribution 4.0" },
+	{ CL_NAME,    "creativecommons.org/licenses/by/4.0/" },
+	{ CL_NAME,    "Gameplay music:  \"Run As Fast As You Can\"  by Pix" },
+	{ CL_NAME,    "Final boss music:  \"Boss Time\"  by FesilyanStudios" },
+	{ CL_GAP,     "" },
+
 	{ CL_HEADING, "PRESIDENT" },
 	{ CL_NAME,    "Claude Comair" },
 	{ CL_GAP,     "" },

@@ -18,6 +18,7 @@
 #include "game.h"
 #include "howtoplay.h"
 #include "credits.h"
+#include "practicerange.h"   // TEMP playtest stage (secret code on this menu). Remove with the block in Main_Menu_Update.
 
 
 CP_Font myFont;
@@ -216,6 +217,14 @@ void Main_Menu_Update(void)
 	float dt = CP_System_GetDt();
 	if (dt > 0.05f) dt = 0.05f;
 	s_menuTime += dt;
+
+	// TEMP: secret code opens the Practice Range (practicerange.h). Delete this block to remove it.
+	if (PracticeRange_CheckCode(dt))
+	{
+		CP_Sound_StopGroup(CP_SOUND_GROUP_0);
+		s_musicPlaying = false;
+		return;
+	}
 
 	float mx = CP_Input_GetMouseX();
 	float my = CP_Input_GetMouseY();

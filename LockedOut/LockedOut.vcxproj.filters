@@ -62,6 +62,21 @@
     <ClInclude Include="..\src\weapon.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\src\wpn_pistol.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\wpn_healthlaser.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\wpn_bloodrang.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\wpn_bloodbomb.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\wpn_laststand.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="..\src\sfx.h">
       <Filter>Header Files</Filter>
     </ClInclude>

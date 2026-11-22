@@ -34,7 +34,7 @@ typedef struct
 
 	WeaponType weapon;//let player be able to use different weapons.
 	bool owned[W_COUNT];
-	int  gunLevel[W_COUNT];   // 1..MAX_WEAPON_LEVEL for each gun (Lv4 = evolved)
+	int  gunLevel[W_COUNT];   // 1..GetMaxWeaponLevel(w) for each gun (Lv5 = evolved pistol, Lv4 = evolved for the rest)
 
 	float noFireFlash;  // red flash on the health bar when a shot is refused
 

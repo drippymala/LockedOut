@@ -8,6 +8,7 @@
 // Copyright © 2026 DigiPen, All rights reserved.
 //---------------------------------------------------------
 
+#include <math.h>          // cosf, sinf (Tyrant summon ring)
 #include "cprocessing.h"
 #include "utils.h"
 #include "game.h"     // player, windowWidth, windowHeight
@@ -159,8 +160,56 @@ static int   s_finalPhase = 0;         // Tracks current attack mode (0: Dash, 1
 static float s_finalPhaseTimer = 0.0f; // Countdown timer for 7-second active phases
 static float s_finalShootTimer = 0.0f; // Interval between individual bullets during Phase 1
 
+// Tyrant low-HP behaviour
+#define TYRANT_SUMMON_HP        0.50f   // at or below this share of HP it starts summoning
+#define TYRANT_SUMMON_INTERVAL  10.0f   // seconds between rings (the first ring comes as soon as it hits half HP)
+#define TYRANT_SUMMON_COUNT     10      // zombies per ring (alternating walker / runner)
+#define TYRANT_SUMMON_DISTANCE  80.0f   // how far outside its body the ring appears
+#define TYRANT_ENRAGE_HP        0.25f   // at or below this share of HP it enrages
+#define TYRANT_ENRAGE_SPEED     1.10f   // enraged: moves (and dashes) 10% faster
+#define TYRANT_MINION_WAVE      20      // summoned zombies get wave 20 stats
+
+static bool  s_finalEnraged     = false;
+static float s_finalSummonTimer = 0.0f;
+
+static Zombie* SpawnZombieOfType(ZombieType type, int wave);   // spawning section below
+
+// Spawns a ring of walkers and runners around the Tyrant (kept inside the screen).
+static void SummonRing(const Zombie* boss)
+{
+	float dist = boss->radius + TYRANT_SUMMON_DISTANCE;
+	for (int i = 0; i < TYRANT_SUMMON_COUNT; ++i)
+	{
+		Zombie* m = SpawnZombieOfType((i % 2 == 0) ? Z_WALKER : Z_RUNNER, TYRANT_MINION_WAVE);
+		if (!m) return;   // no free slots left
+
+		float angle = 6.2831853f * (float)i / (float)TYRANT_SUMMON_COUNT;
+		m->pos = CP_Vector_Set(
+			CP_Math_ClampFloat(boss->pos.x + cosf(angle) * dist, m->radius, windowWidth - m->radius),
+			CP_Math_ClampFloat(boss->pos.y + sinf(angle) * dist, m->radius, windowHeight - m->radius));
+		m->hitFlash = 0.2f;   // flash so you can see them appear
+	}
+}
+
 static void finalBoss(Zombie* z, CP_Vector toPlayer, CP_Vector moveDir, float dt)
 {
+	// 0. Low-HP behaviour (runs during every phase)
+	if (!s_finalEnraged && z->hp <= z->maxHp * TYRANT_ENRAGE_HP)
+	{
+		s_finalEnraged = true;
+		z->speed *= TYRANT_ENRAGE_SPEED;
+		z->hitFlash = 0.3f;
+	}
+	if (z->hp <= z->maxHp * TYRANT_SUMMON_HP)
+	{
+		s_finalSummonTimer -= dt;
+		if (s_finalSummonTimer <= 0.0f)
+		{
+			SummonRing(z);
+			s_finalSummonTimer = TYRANT_SUMMON_INTERVAL;
+		}
+	}
+
 	// 1. Cooldown between abilities (Walks normally for 2.0s)
 	if (z->abilityTimer > 0.0f)
 	{
@@ -271,12 +320,14 @@ void SpawnBoss(int wave)
 	{
 	case 20:
 		z->type = Z_BOSS_FINAL; // Final Boss (The Tyrant)
-		z->maxHp = 2000.0f;     // High health pool for solo showdown
+		z->maxHp = 12000.0f;    // High health pool for solo showdown
 		z->speed = 75.0f;
 		z->radius = 45.0f;       // Largest boss size
 		z->damage = 25.0f;
 		z->abilityTimer = 2.0f;  // 2s pause before starting abilities
 		s_finalPhase = 2;        // Starts with phase 0 (Dash) first because (2+1)%3 = 0
+		s_finalEnraged = false;
+		s_finalSummonTimer = 0.0f;   // first ring the moment it drops to half HP
 		break;
 
 	case 15:
@@ -300,7 +351,7 @@ void SpawnBoss(int wave)
 	case 5:
 	default:
 		z->type = Z_BOSS_CHARGER;// Charger Boss
-		z->maxHp = 450.0f;
+		z->maxHp = 550.0f;
 		z->speed = 90.0f;
 		z->radius = 35.0f;
 		z->damage = 25.0f;
@@ -313,7 +364,9 @@ void SpawnBoss(int wave)
 	z->pos = CP_Vector_Set(windowWidth * 0.5f, -50.0f);
 }
 
-void SpawnZombie(int wave)
+// Takes a free slot and sets it up as a normal zombie of this type, with this wave's scaling.
+// Returns NULL if every slot is in use. The caller sets the position.
+static Zombie* SpawnZombieOfType(ZombieType type, int wave)
 {
 	int slot = -1;
 	for (int i = 0; i < MAX_ZOMBIES; ++i)
@@ -324,14 +377,7 @@ void SpawnZombie(int wave)
 			break;
 		}
 	}
-	if (slot < 0) return;
-
-	// Dynamic spawn chances based on current wave level
-	float runnerChance = (wave >= 3) ? (0.07f * (float)(wave - 2)) : 0.0f;
-	if (runnerChance > 0.35f) runnerChance = 0.35f;
-
-	float bruteChance = (wave >= 5) ? (0.04f * (float)(wave - 4)) : 0.0f;
-	if (bruteChance > 0.18f) bruteChance = 0.18f;
+	if (slot < 0) return NULL;
 
 	// Multiplicative wave scaling
 	// hp: +10% per wave | speed: +3% per wave (capped at +50%) | damage: +5% per wave
@@ -348,18 +394,16 @@ void SpawnZombie(int wave)
 	z->abilityTimer = 0.0f;
 	z->isDashing = false;
 
-	// Roll random float [0.0, 1.0] to determine archetype
-	if (CP_Random_RangeFloat(0.0f, 1.0f) < bruteChance)
+	z->type = type;
+	if (type == Z_BRUTE)
 	{
-		z->type = Z_BRUTE;
 		z->maxHp = 200.0f;
 		z->speed = 62.0f;
 		z->radius = 26.0f;
 		z->damage = 20.0f;
 	}
-	else if (CP_Random_RangeFloat(0.0f, 1.0f) < runnerChance)
+	else if (type == Z_RUNNER)
 	{
-		z->type = Z_RUNNER;
 		z->maxHp = 17.0f;
 		z->speed = 160.0f;
 		z->radius = 12.0f;
@@ -367,7 +411,7 @@ void SpawnZombie(int wave)
 	}
 	else
 	{
-		z->type = Z_WALKER;
+		z->type = Z_WALKER;   // anything else (bosses use SpawnBoss) becomes a walker
 		z->maxHp = 25.0f;
 		z->speed = 95.0f;
 		z->radius = 15.0f;
@@ -386,6 +430,25 @@ void SpawnZombie(int wave)
 
 	z->hp = z->maxHp;
 	z->attackTimer = 0.0f;
+	return z;
+}
+
+void SpawnZombie(int wave)
+{
+	// Dynamic spawn chances based on current wave level
+	float runnerChance = (wave >= 3) ? (0.07f * (float)(wave - 2)) : 0.0f;
+	if (runnerChance > 0.35f) runnerChance = 0.35f;
+
+	float bruteChance = (wave >= 5) ? (0.04f * (float)(wave - 4)) : 0.0f;
+	if (bruteChance > 0.18f) bruteChance = 0.18f;
+
+	// Roll random float [0.0, 1.0] to determine archetype
+	ZombieType type = Z_WALKER;
+	if (CP_Random_RangeFloat(0.0f, 1.0f) < bruteChance)       type = Z_BRUTE;
+	else if (CP_Random_RangeFloat(0.0f, 1.0f) < runnerChance) type = Z_RUNNER;
+
+	Zombie* z = SpawnZombieOfType(type, wave);
+	if (!z) return;
 
 	// Choose spawn position along screen perimeter just out of player view
 	const float margin = 40.0f;
@@ -466,8 +529,9 @@ void DrawZombies(void)
 		}
 		else if (z->type == Z_BOSS_FINAL)
 		{
-			// Crimson Red
-			skinColor = (z->hitFlash > 0.0f) ? Col(255, 255, 255, 255) : Col(195, 25, 45, 255);
+			// Crimson red, or blazing orange-red once enraged
+			CP_Color base = s_finalEnraged ? Col(255, 85, 20, 255) : Col(195, 25, 45, 255);
+			skinColor = (z->hitFlash > 0.0f) ? Col(255, 255, 255, 255) : base;
 			armThickness = 20.0f;
 			armLength = r * 1.5f;
 
@@ -575,8 +639,8 @@ void UpdateZombies(float deltaTime)
 			z->attackTimer -= deltaTime;
 		}
 
-		// Ability cooldown countdown for non-shooting types
-		if (z->abilityTimer > 0.0f && !z->isDashing && z->type != Z_BOSS_SHOOT)
+		// Ability cooldown countdown (the Spitter and the Tyrant count their own timers down)
+		if (z->abilityTimer > 0.0f && !z->isDashing && z->type != Z_BOSS_SHOOT && z->type != Z_BOSS_FINAL)
 		{
 			z->abilityTimer -= deltaTime;
 		}

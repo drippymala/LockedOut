@@ -41,6 +41,11 @@
     <ClInclude Include="..\src\splash.h" />
     <ClInclude Include="..\src\utils.h" />
     <ClInclude Include="..\src\weapon.h" />
+    <ClInclude Include="..\src\wpn_pistol.h" />
+    <ClInclude Include="..\src\wpn_healthlaser.h" />
+    <ClInclude Include="..\src\wpn_bloodrang.h" />
+    <ClInclude Include="..\src\wpn_bloodbomb.h" />
+    <ClInclude Include="..\src\wpn_laststand.h" />
     <ClInclude Include="..\src\zombie.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">

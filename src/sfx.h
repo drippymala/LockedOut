@@ -31,4 +31,16 @@ void Sfx_Load(void);              // load every sound (safe to call again: alrea
 void Sfx_Free(void);              // stop and free every sound
 void Sfx_Play(SfxId id);          // play once
 void Sfx_StopBombCharge(void);    // cut the charge-up sound (thrown, cancelled or game reset)
-void Sfx_SetPaused(bool paused);  // pause / resume every playing sound effect (pause menu)
+void Sfx_SetPaused(bool paused);  // pause / resume every playing sound effect and the music (pause menu)
+
+/* ---------- in-game music (the menu plays its own music, see mainmenu.c) ---------- */
+typedef enum
+{
+	MUSIC_NONE,
+	MUSIC_GAME,   // normal waves
+	MUSIC_BOSS,   // the Tyrant fight (wave 20)
+	MUSIC_COUNT
+} MusicId;
+
+void Music_Play(MusicId id);      // loop this track (does nothing if it's already the one playing)
+void Music_Stop(void);            // stop whatever in-game track is playing
