@@ -22,7 +22,7 @@
 // Lv4 BLOOD CLUSTER: the blast throws out 4 mini bombs that explode again inside it, and leaves a blood pool that hurts zombies standing in it.
 #define BLOOD_BOMB_RGB             230, 40, 110
 #define BOMB_CHARGE_RATE           30.0f   // HP per second poured in while holding the mouse
-#define BOMB_MAX_CHARGE_PERCENT    0.40f   // the orb holds at most 40% of the HP you had when you started charging...
+#define BOMB_MAX_CHARGE_PERCENT    0.40f   // the orb holds at most 40% of your MAX HP (pouring stops if you reach 1 HP)...
 #define BOMB_EVO_MAX_CHARGE_PERCENT 0.60f  // ...or 60% at Lv4
 #define BOMB_HP_COST_SHARE         0.75f   // you pay 75% of the HP that goes into the orb (it still counts the full amount for damage)
 #define BOMB_DAMAGE_PER_HP_LV      { 1.2f, 1.9f, 2.8f, 3.3f }   // blast damage for each HP inside

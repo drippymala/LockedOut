@@ -126,21 +126,51 @@ static const HowLine s_patchPage[] =
 	{ C_HEAD, HS_NOTE_HEAD, "GAMEPLAY" },
 	{ C_BODY, HS_NOTE, "Wave 5 / 10 / 15 bosses arrive once 25% of the wave is out. Kill one to pick: a Pistol upgrade, or full heal + 15% max HP." },
 	{ C_BODY, HS_NOTE, "Every gun fires one last time and leaves you at 1 HP. Clicking an upgrade card no longer fires your gun." },
+	{ C_BODY, HS_NOTE, "The main menu music now loops instead of stopping when it ends." },
 	{ 0, 0, 0, HS_GAP, "" },
 	{ 220, 150, 255, HS_NOTE_HEAD, "BOSSES" },
 	{ C_BODY, HS_NOTE, "The Tyrant: 2000 -> 12000 HP, and below half HP it summons a ring of walkers and runners every 10s." },
 	{ 0, 0, 0, HS_GAP, "" },
 	{ C_HEAD, HS_NOTE_HEAD, "GUNS" },
 	{ 255, 230, 120, HS_NOTE, "PISTOL: a new level (5 in total). Damage 10 / 16 / 21 / 28 and slightly faster at the top. Lv5 is now TWIN FANG (33 damage)." },
-	{ C_DIM, HS_NOTE, "     Twin Fang: much wider spread, a pierced zombie takes 35%, and each hit has a 5% chance to heal you 5 HP." },
+	{ C_DIM, HS_NOTE, "     Twin Fang: much wider spread, the zombie behind a pierced one takes only 35% damage (was 100%), and hits have a 5% chance to heal 5 HP." },
 	{ 255,  50,  50, HS_NOTE, "HEALTH LASER: costs 8 HP + 10% of your HP (was 25%). The beam flies faster, so it fires more often. Each zombie after the first takes 10% less." },
-	{ 200,  20,  50, HS_NOTE, "BLOODRANG: bigger at Lv3 and Lv4. Lv3 catch refund 100% -> 80%. Boost cap +50% -> +40%  (Twin Rang: +100% -> +80%)." },
+	{ 200,  20,  50, HS_NOTE, "BLOODRANG: flies out and back about 30% faster, bigger at Lv3/Lv4. Lv3 refund 100% -> 80%. Boost cap +50% -> +40% (Twin Rang: +100% -> +80%)." },
 	{ C_DIM, HS_NOTE, "     Twin Rang: both boomerangs now curve out and cross exactly where you aim." },
-	{ 230,  40, 110, HS_NOTE, "BLOOD BOMB: charges faster, costs 75% of the HP you pour in, hits harder, bigger blast, 0.2s between throws (was 0.5s)." },
-	{ C_DIM, HS_NOTE, "     Kills drop a heal 80% of the time (was 20-60%). A direct hit does +50%. The charge sound stops once the orb is full." },
-	{ C_DIM, HS_NOTE, "     Blood Cluster: the orb holds up to 60% of your HP, mini bombs burst inside the blast, and it leaves a blood pool for 2s." },
+	{ 230,  40, 110, HS_NOTE, "BLOOD BOMB: hits harder, bigger blast, charges faster, costs 75% of what you pour in. The orb holds up to 40% of MAX HP (was current HP)." },
+	{ C_DIM, HS_NOTE, "     0.2s between throws (was 0.5s). A direct hit does +50%. Kills drop a heal 80% of the time (was 20-60%). Charge sound fits the orb size." },
+	{ C_DIM, HS_NOTE, "     Blood Cluster: holds up to 60% of max HP, weaker mini bombs burst inside the blast, and it leaves a blood pool for 2s." },
 	{ 228,  95,  95, HS_NOTE, "LAST STAND: max damage 30 / 52 / 90 at Lv1-3 (was 38 / 68 / 120), fires a bit slower, slower bullets, pays off earlier in the red." },
 	{ C_DIM, HS_NOTE, "     Death's Door: each zombie a bullet goes through halves its damage. Free shots only once you are at 1 HP." }
+};
+
+// Which gun is strongest at each level. The Pistol has an extra level, so its Lv2-3 sit with the others' Lv2,
+// its Lv4 with their Lv3, and Twin Fang (Lv5) with their evolved Lv4. Last Stand is rated at low HP.
+#define C_TIER_S  255, 210,  80
+#define C_TIER_A  140, 220, 120
+#define C_TIER_B  120, 180, 240
+#define C_TIER_C  170, 170, 170
+static const HowLine s_tierPage[] =
+{
+	{ C_HEAD, HS_HEAD, "TIER LIST  -  the strongest guns at each level" },
+	{ C_DIM, HS_NOTE, "Pistol levels are lined up with the others: its Lv2-3 count as Lv2, Lv4 as Lv3, and Twin Fang (Lv5) as Lv4." },
+	{ C_DIM, HS_NOTE, "Last Stand is rated at low HP - at full HP it is the weakest gun." },
+	{ 0, 0, 0, HS_GAP, "" },
+	{ C_HEAD, HS_NOTE_HEAD, "SINGLE TARGET  (bosses, brutes)" },
+	{ C_TIER_S, HS_NOTE, "S     Lv3: Health Laser, Pistol          Lv4: Bloodrang, Health Laser, Last Stand" },
+	{ C_TIER_A, HS_NOTE, "A     Lv1: Health Laser     Lv2: Health Laser, Pistol, Bloodrang, Blood Bomb     Lv3: Bloodrang, Blood Bomb, Last Stand     Lv4: Pistol, Blood Bomb" },
+	{ C_TIER_B, HS_NOTE, "B     Lv1: Blood Bomb, Bloodrang, Last Stand     Lv2: Last Stand" },
+	{ C_TIER_C, HS_NOTE, "C     Lv1: Pistol" },
+	{ 0, 0, 0, HS_GAP, "" },
+	{ C_HEAD, HS_NOTE_HEAD, "CROWDS  (packs of zombies)" },
+	{ C_TIER_S, HS_NOTE, "S     Lv1-3: Health Laser, Blood Bomb          Lv4: Bloodrang, Health Laser, Blood Bomb" },
+	{ C_TIER_A, HS_NOTE, "A     Lv2-3: Bloodrang          Lv4: Last Stand" },
+	{ C_TIER_B, HS_NOTE, "B     Lv1: Bloodrang          Lv4: Pistol" },
+	{ C_TIER_C, HS_NOTE, "C     Lv1-3: Pistol, Last Stand" },
+	{ 0, 0, 0, HS_GAP, "" },
+	{ C_HEAD, HS_NOTE_HEAD, "QUICK PICKS" },
+	{ C_BODY, HS_NOTE, "Early on, the Health Laser is the safest pick for everything. The Blood Bomb is just as good against crowds." },
+	{ C_BODY, HS_NOTE, "Fully evolved, Twin Rang and Lifeline Lance are top in both. Death's Door hits hardest of all - if you dare stay near 1 HP." }
 };
 
 #define HOW_COUNT(a)  ((int)(sizeof(a) / sizeof((a)[0])))
@@ -150,7 +180,8 @@ static const HowPage s_pages[] =
 	{ "WAVES",            s_wavesPage,    HOW_COUNT(s_wavesPage)    },
 	{ "GUNS",             s_gunsPage,     HOW_COUNT(s_gunsPage)     },
 	{ "PICKUPS & SCORE",  s_pickupsPage,  HOW_COUNT(s_pickupsPage)  },
-	{ "PATCH NOTES",      s_patchPage,    HOW_COUNT(s_patchPage)    }
+	{ "PATCH NOTES",      s_patchPage,    HOW_COUNT(s_patchPage)    },
+	{ "TIER LIST",        s_tierPage,     HOW_COUNT(s_tierPage)     }
 };
 #define HOW_PAGE_COUNT  HOW_COUNT(s_pages)
 
@@ -194,7 +225,7 @@ static void HowTab_Draw(const HowButton* b, bool selected, float mx, float my)
 
 	G_Rect(b->x - 4.0f * s_k, b->y - 4.0f * s_k, b->w + 8.0f * s_k, b->h + 8.0f * s_k, border);
 	G_Rect(b->x, b->y, b->w, b->h, fill);
-	G_Text(b->label, b->x + b->w * 0.5f, b->y + b->h * 0.5f, 26.0f * s_k, text, AL_CENTER);
+	G_Text(b->label, b->x + b->w * 0.5f, b->y + b->h * 0.5f, 23.0f * s_k, text, AL_CENTER);   // smaller so 6 tabs fit
 }
 
 /* ---- drawing one section ---- */
@@ -238,7 +269,7 @@ void HowToPlay_Init(void)
 	s_backButton = (HowButton){ 34.0f * s_k, 24.0f * s_k, 170.0f * s_k, 50.0f * s_k, "BACK" };
 
 	// one tab per section, in a row under the title
-	float tabW = 280.0f * s_k;   // 5 tabs must fit across the screen
+	float tabW = 235.0f * s_k;   // 6 tabs must fit across the screen
 	float tabH = 50.0f * s_k;
 	float gap = 20.0f * s_k;
 	float startX = (s_w - (tabW * (float)HOW_PAGE_COUNT + gap * (float)(HOW_PAGE_COUNT - 1))) * 0.5f;
@@ -276,6 +307,7 @@ void HowToPlay_Update(void)
 	if (CP_Input_KeyTriggered(KEY_3)) s_page = 2;
 	if (CP_Input_KeyTriggered(KEY_4)) s_page = 3;
 	if (CP_Input_KeyTriggered(KEY_5)) s_page = 4;
+	if (CP_Input_KeyTriggered(KEY_6)) s_page = 5;
 	if (CP_Input_KeyTriggered(KEY_RIGHT)) s_page = (s_page + 1) % HOW_PAGE_COUNT;
 	if (CP_Input_KeyTriggered(KEY_LEFT))  s_page = (s_page + HOW_PAGE_COUNT - 1) % HOW_PAGE_COUNT;
 

@@ -18,6 +18,8 @@
 
 #define ZOMBIE_ATTACK_COOLDOWN 0.30f   // seconds between bites from the same zombie
 #define MAX_RUNNER_SPEED       210.0f  // Cap runner speed so it never outruns the player
+#define SPAWN_MIN_PLAYER_DIST  450.0f  // normal zombies never spawn closer than this to the player
+#define SPAWN_TRIES            8       // random edge spots tried to find one that far away
 
 Zombie     s_zombies[MAX_ZOMBIES];   // not static: shared through zombie.h
 static int s_nextZombieId = 1;       // unique id per zombie
@@ -464,16 +466,29 @@ void SpawnZombie(int wave)
 	Zombie* z = SpawnZombieOfType(type, wave);
 	if (!z) return;
 
-	// Choose spawn position along screen perimeter just out of player view
+	// Choose spawn position along screen perimeter just out of player view,
+	// but never right next to the player: try a few random spots and keep the first one far enough away
+	// (if none are, use the farthest one tried)
 	const float margin = 40.0f;
-	int edge = (int)CP_Random_RangeFloat(0.0f, 4.0f);
-	switch (edge)
+	CP_Vector best = CP_Vector_Set(0.0f, 0.0f);
+	float bestDist = -1.0f;
+	for (int attempt = 0; attempt < SPAWN_TRIES; ++attempt)
 	{
-	case 0:  z->pos = CP_Vector_Set(CP_Random_RangeFloat(0.0f, windowWidth), -margin); break;
-	case 1:  z->pos = CP_Vector_Set(windowWidth + margin, CP_Random_RangeFloat(0.0f, windowHeight)); break;
-	case 2:  z->pos = CP_Vector_Set(CP_Random_RangeFloat(0.0f, windowWidth), windowHeight + margin); break;
-	default: z->pos = CP_Vector_Set(-margin, CP_Random_RangeFloat(0.0f, windowHeight)); break;
+		CP_Vector spot;
+		int edge = (int)CP_Random_RangeFloat(0.0f, 4.0f);
+		switch (edge)
+		{
+		case 0:  spot = CP_Vector_Set(CP_Random_RangeFloat(0.0f, windowWidth), -margin); break;
+		case 1:  spot = CP_Vector_Set(windowWidth + margin, CP_Random_RangeFloat(0.0f, windowHeight)); break;
+		case 2:  spot = CP_Vector_Set(CP_Random_RangeFloat(0.0f, windowWidth), windowHeight + margin); break;
+		default: spot = CP_Vector_Set(-margin, CP_Random_RangeFloat(0.0f, windowHeight)); break;
+		}
+
+		float dist = CP_Vector_Distance(spot, player.position);
+		if (dist > bestDist) { best = spot; bestDist = dist; }
+		if (dist >= SPAWN_MIN_PLAYER_DIST) break;
 	}
+	z->pos = best;
 }
 
 /* =========================================================

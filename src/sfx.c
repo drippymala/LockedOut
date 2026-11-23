@@ -65,6 +65,8 @@ static const SfxInfo s_info[SFX_COUNT] =
 	[SFX_RANG_THROW]     = { "Assets/Sounds/bloodrang_throw.wav",      0.07f, 0.00f },
 	[SFX_RANG_CATCH]     = { "Assets/Sounds/bloodrang_catch.wav",      0.10f, 0.00f },
 	[SFX_BOMB_CHARGE]    = { "Assets/Sounds/blood_bomb_charge.wav",    0.12f, 0.00f },
+	[SFX_BOMB_CHARGE_LONG] = { "Assets/Sounds/blood_bomb_charge_long.wav", 0.12f, 0.00f },
+	[SFX_BOMB_CHARGE_XLONG] = { "Assets/Sounds/blood_bomb_charge_xlong.wav", 0.12f, 0.00f },
 	[SFX_BOMB_EXPLOSION] = { "Assets/Sounds/blood_bomb_explosion.wav", 0.15f, 0.05f },
 	[SFX_ZOMBIE_HIT]     = { "Assets/Sounds/zombie_hit.wav",           0.75f, 0.04f },
 	[SFX_PLAYER_HURT]    = { "Assets/Sounds/player_hurt.wav",          0.72f, 0.10f },
@@ -104,8 +106,28 @@ void Sfx_Play(SfxId id)
 	if (now - s_lastPlayed[id] < s_info[id].minGap) return;   // too soon after the last one
 	s_lastPlayed[id] = now;
 
-	CP_SOUND_GROUP group = (id == SFX_BOMB_CHARGE) ? SFX_CHARGE_GROUP : SFX_GROUP;
+	CP_SOUND_GROUP group = (id == SFX_BOMB_CHARGE || id == SFX_BOMB_CHARGE_LONG || id == SFX_BOMB_CHARGE_XLONG) ? SFX_CHARGE_GROUP : SFX_GROUP;
 	CP_Sound_PlayAdvanced(s_sounds[id], s_info[id].volume, 1.0f, 0 /* no loop */, group);
+}
+
+// Three versions of the same bfxr charge-up, each rising to the same top note over a different time.
+// The shortest one that lasts the whole charge is used, so the rise always fits the orb:
+//   blood_bomb_charge.wav        2.38s   (every Lv1-3 orb at normal HP)
+//   blood_bomb_charge_long.wav   3.91s   (big Lv1-3 orbs, Lv4 up to about 195 max HP)
+//   blood_bomb_charge_xlong.wav  5.41s   (Lv4 at up to 272 max HP)
+// All play at normal speed and are cut off when the orb stops charging.
+#define BOMB_CHARGE_SOUND_LENGTH       2.38f
+#define BOMB_CHARGE_LONG_SOUND_LENGTH  3.91f
+
+void Sfx_PlayBombCharge(float chargeSeconds)
+{
+	SfxId id = SFX_BOMB_CHARGE;
+	if (chargeSeconds > BOMB_CHARGE_LONG_SOUND_LENGTH) id = SFX_BOMB_CHARGE_XLONG;
+	else if (chargeSeconds > BOMB_CHARGE_SOUND_LENGTH) id = SFX_BOMB_CHARGE_LONG;
+	if (s_sounds[id] == NULL) id = SFX_BOMB_CHARGE;   // file missing: fall back to the short one
+	if (s_sounds[id] == NULL) return;
+
+	CP_Sound_PlayAdvanced(s_sounds[id], s_info[id].volume, 1.0f, 0 /* no loop */, SFX_CHARGE_GROUP);
 }
 
 void Sfx_StopBombCharge(void)

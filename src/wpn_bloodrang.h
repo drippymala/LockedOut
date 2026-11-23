@@ -34,9 +34,9 @@
                                            //      bowing out at most this far to each side halfway there
 #define RANG_EVO_ARC_SHARE         0.35f   // Lv4: ...or this share of the throw distance if that is less (close throws stay tight)
 #define MAX_RANGS                  2
-#define RANG_OUT_SPEED             850.0f  // px per second flying out
-#define RANG_RETURN_SPEED          700.0f  // px per second flying back
-#define RANG_TURN_RATE             4.5f    // how sharply it can turn on the way back (radians per second)
+#define RANG_OUT_SPEED             1100.0f // px per second flying out
+#define RANG_RETURN_SPEED          950.0f  // px per second flying back
+#define RANG_TURN_RATE             6.1f    // how sharply it can turn on the way back (radians per second; raised with the return speed so its loops stay the same size)
 #define RANG_TURN_GROWTH           1.5f    // each missed lap it turns this much sharper, so it can't orbit you forever
 #define RANG_LAP_DRAIN             3.0f    // HP it loses each lap it misses you
 #define RANG_RADIUS_LV             { 14.0f, 14.0f, 17.0f, 20.0f }   // hitbox, catch and drawn size (grows a bit at Lv3 and Lv4)

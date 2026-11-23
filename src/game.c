@@ -38,6 +38,7 @@
 #define SPAWN_DELAY_MIN      0.35f  // never spawns faster than this
 #define SPAWN_GROUP2_WAVE    8      // from this wave, zombies spawn 2 at a time
 #define SPAWN_GROUP3_WAVE    14     // from this wave, 3 at a time
+#define SPAWN_ALIVE_BASE     8      // at most this + the wave number zombies alive at once (wave 5: 13, wave 15: 23)
 #define TYRANT_MEDKIT_TIME   10.0f  // during the final boss fight, a medkit drops at a random spot this often (seconds)
 #define UPGRADE_CLICK_DELAY  0.6f   // seconds before the upgrade cards can be clicked (so a shooting click doesn't pick one)
 
@@ -810,11 +811,13 @@ static void UpdateWave(float deltaTime)
 	if (s_toSpawn > 0)
 	{
 		s_spawnTimer -= deltaTime;
-		if (s_spawnTimer <= 0.0f)
+		// never more than SPAWN_ALIVE_BASE + wave zombies alive at once: spawning waits until you kill some
+		int aliveCap = SPAWN_ALIVE_BASE + s_wave;
+		if (s_spawnTimer <= 0.0f && alive < aliveCap)
 		{
 			// later waves spawn in small groups, so zombies come from several sides at once
 			int group = (s_wave >= SPAWN_GROUP3_WAVE) ? 3 : (s_wave >= SPAWN_GROUP2_WAVE) ? 2 : 1;
-			for (int g = 0; g < group && s_toSpawn > 0; ++g)
+			for (int g = 0; g < group && s_toSpawn > 0 && alive + g < aliveCap; ++g)
 			{
 				SpawnZombie(s_wave);
 				s_toSpawn--;

@@ -21,6 +21,8 @@ typedef enum
 	SFX_RANG_THROW,
 	SFX_RANG_CATCH,
 	SFX_BOMB_CHARGE,     // plays while the blood bomb charges; stop it with Sfx_StopBombCharge
+	SFX_BOMB_CHARGE_LONG,  // longer version for big orbs (Sfx_PlayBombCharge picks which one)
+	SFX_BOMB_CHARGE_XLONG, // longest version for the biggest Lv4 orbs
 	SFX_BOMB_EXPLOSION,
 	SFX_ZOMBIE_HIT,
 	SFX_PLAYER_HURT,
@@ -30,6 +32,7 @@ typedef enum
 void Sfx_Load(void);              // load every sound (safe to call again: already-loaded sounds are skipped)
 void Sfx_Free(void);              // stop and free every sound
 void Sfx_Play(SfxId id);          // play once
+void Sfx_PlayBombCharge(float chargeSeconds);   // start the charge-up, stretched to last chargeSeconds (a full orb)
 void Sfx_StopBombCharge(void);    // cut the charge-up sound (thrown, cancelled or game reset)
 void Sfx_SetPaused(bool paused);  // pause / resume every playing sound effect and the music (pause menu)
 

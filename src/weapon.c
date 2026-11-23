@@ -275,7 +275,7 @@ void GetWeaponHudText(WeaponType w, char* buf, size_t bufSize)
 			snprintf(buf, bufSize, "[4] %s Lv%d: charging %.0f / %.0f HP  -  blast deals %.0f",
 				name, level, s_chargeStored, s_chargeCap, s_chargeStored * BombDamagePerHp());
 		else
-			snprintf(buf, bufSize, "[4] %s Lv%d: hold to pour HP in (up to %.0f%%), release to throw  -  %.1f damage per HP",
+			snprintf(buf, bufSize, "[4] %s Lv%d: hold to pour HP in (up to %.0f%% of max HP), release to throw  -  %.1f damage per HP",
 				name, level, BombMaxChargePercent() * 100.0f, BombDamagePerHp());
 		break;
 	case W_LAST_STAND:
@@ -350,7 +350,7 @@ void GetWeaponStats(WeaponType w, WeaponStats* out)
 		}
 		else
 		{
-			float cap = player.hp * BombMaxChargePercent();   // the most the orb could hold if you started charging now
+			float cap = player.maxHp * BombMaxChargePercent();   // the most the orb can hold (a share of your MAX HP)
 			snprintf(out->cost, sizeof(out->cost), "up to %.0f HP  (holds %.0f)", cap * BOMB_HP_COST_SHARE, cap);
 			snprintf(out->damage, sizeof(out->damage), "%.1f per HP poured", BombDamagePerHp());
 			snprintf(out->extraLabel, sizeof(out->extraLabel), "MAX");
@@ -1184,8 +1184,11 @@ static void UpdateBombCharge(float deltaTime, bool held)
 		}
 		s_charging = true;
 		s_chargeStored = 0.0f;
-		s_chargeCap = player.hp * BombMaxChargePercent();
-		Sfx_Play(SFX_BOMB_CHARGE);   // rising charge-up, cut off on release
+		s_chargeCap = player.maxHp * BombMaxChargePercent();   // share of MAX HP; pouring still stops at 1 HP
+		// rising charge-up, stretched to last until this orb is full (cut off on release / full / 1 HP)
+		float canPour = (player.hp - MIN_HP_AFTER_SHOT) / BOMB_HP_COST_SHARE;   // the most you can pour before 1 HP
+		float fullOrb = (s_chargeCap < canPour) ? s_chargeCap : canPour;
+		Sfx_PlayBombCharge(fullOrb / BOMB_CHARGE_RATE);
 	}
 	if (!s_charging) return;
 

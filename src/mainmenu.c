@@ -183,7 +183,7 @@ void Main_Menu_Init(void)
 	if (!myMusic) myMusic = CP_Sound_Load("Assets/Sounds/Menu.mp3");
 	if (!s_musicPlaying)
 	{
-		CP_Sound_PlayAdvanced(myMusic, 0.1f, 1.0f, false, CP_SOUND_GROUP_0);
+		CP_Sound_PlayAdvanced(myMusic, 0.1f, 1.0f, true, CP_SOUND_GROUP_0);   // loops until PLAY stops it
 		s_musicPlaying = true;
 	}
 
