@@ -169,12 +169,13 @@ static float s_finalShootTimer = 0.0f; // Interval between individual bullets du
 #define TYRANT_ENRAGE_SPEED     1.10f   // enraged: moves (and dashes) 10% faster
 #define TYRANT_MINION_WAVE      20      // summoned zombies get wave 20 stats
 
-static bool  s_finalEnraged     = false;
+static bool  s_finalEnraged = false;
 static float s_finalSummonTimer = 0.0f;
 
 static Zombie* SpawnZombieOfType(ZombieType type, int wave);   // spawning section below
 
 // Spawns a ring of walkers and runners around the Tyrant (kept inside the screen).
+// Math: Uses parametric circle equation: (x = cx + r*cos(theta), y = cy + r*sin(theta))
 static void SummonRing(const Zombie* boss)
 {
 	float dist = boss->radius + TYRANT_SUMMON_DISTANCE;
@@ -183,6 +184,7 @@ static void SummonRing(const Zombie* boss)
 		Zombie* m = SpawnZombieOfType((i % 2 == 0) ? Z_WALKER : Z_RUNNER, TYRANT_MINION_WAVE);
 		if (!m) return;   // no free slots left
 
+		// Math: 6.2831853f is 2*PI radians (360 degrees). Evenly distributes zombies along perimeter.
 		float angle = 6.2831853f * (float)i / (float)TYRANT_SUMMON_COUNT;
 		m->pos = CP_Vector_Set(
 			CP_Math_ClampFloat(boss->pos.x + cosf(angle) * dist, m->radius, windowWidth - m->radius),
@@ -436,16 +438,28 @@ static Zombie* SpawnZombieOfType(ZombieType type, int wave)
 void SpawnZombie(int wave)
 {
 	// Dynamic spawn chances based on current wave level
-	float runnerChance = (wave >= 3) ? (0.07f * (float)(wave - 2)) : 0.0f;
+	// Wave 3 starts at 20% runner chance
+	float runnerChance = (wave >= 3) ? (0.20f + 0.05f * (float)(wave - 3)) : 0.0f;
 	if (runnerChance > 0.35f) runnerChance = 0.35f;
 
 	float bruteChance = (wave >= 5) ? (0.04f * (float)(wave - 4)) : 0.0f;
 	if (bruteChance > 0.18f) bruteChance = 0.18f;
 
-	// Roll random float [0.0, 1.0] to determine archetype
+	// Single random roll determines archetype bucket:
+	// [0.0 to bruteChance)                   -> Z_BRUTE
+	// [bruteChance to brute+runner)          -> Z_RUNNER
+	// [brute+runner to 1.0)                  -> Z_WALKER
+	float roll = CP_Random_RangeFloat(0.0f, 1.0f);
+
 	ZombieType type = Z_WALKER;
-	if (CP_Random_RangeFloat(0.0f, 1.0f) < bruteChance)       type = Z_BRUTE;
-	else if (CP_Random_RangeFloat(0.0f, 1.0f) < runnerChance) type = Z_RUNNER;
+	if (roll < bruteChance)
+	{
+		type = Z_BRUTE;
+	}
+	else if (roll < bruteChance + runnerChance)
+	{
+		type = Z_RUNNER;
+	}
 
 	Zombie* z = SpawnZombieOfType(type, wave);
 	if (!z) return;
