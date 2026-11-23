@@ -354,6 +354,10 @@ static void DrawHud(void)
 	float slotX = (screenW - (slotW * W_COUNT + slotGap * (W_COUNT - 1))) * 0.5f;
 	float slotY = screenH - 100.0f;
 
+	// Q / E hints on either side of the slots: previous / next gun
+	G_Text("< Q", slotX - 38.0f, slotY + slotH * 0.5f, 22.0f, Col(200, 200, 200, 255), AL_CENTER);
+	G_Text("E >", slotX + slotW * (float)W_COUNT + slotGap * (float)(W_COUNT - 1) + 38.0f, slotY + slotH * 0.5f, 22.0f, Col(200, 200, 200, 255), AL_CENTER);
+
 	for (int w = 0; w < W_COUNT; ++w)
 	{
 		float x = slotX + (slotW + slotGap) * (float)w;
@@ -1425,12 +1429,6 @@ void Game_Update(void)
 	if (deltaTime > MAX_DELTA_TIME)
 	{
 		deltaTime = MAX_DELTA_TIME;
-	}
-
-	if (CP_Input_KeyTriggered(KEY_Q))
-	{
-		CP_Engine_SetNextGameState(Main_Menu_Init, Main_Menu_Update, Main_Menu_Exit);
-		return;
 	}
 
 	if (!s_gameOver)

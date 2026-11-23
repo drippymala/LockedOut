@@ -94,6 +94,25 @@ void HandleGunSwitch(void)
 	if (CP_Input_KeyTriggered(KEY_3) && player.owned[W_BLOODRANG])    player.weapon = W_BLOODRANG;
 	if (CP_Input_KeyTriggered(KEY_4) && player.owned[W_BLOOD_BOMB])   player.weapon = W_BLOOD_BOMB;
 	if (CP_Input_KeyTriggered(KEY_5) && player.owned[W_LAST_STAND])   player.weapon = W_LAST_STAND;
+
+	// Q / E step to the previous / next gun you own (it wraps around, and skips guns you don't have).
+	// For example on gun 2: Q goes to gun 1 and E goes to gun 3.
+	int step = 0;
+	if (CP_Input_KeyTriggered(KEY_E)) step = 1;
+	if (CP_Input_KeyTriggered(KEY_Q)) step = -1;
+	if (step != 0)
+	{
+		int next = (int)player.weapon;
+		for (int tries = 0; tries < W_COUNT; ++tries)
+		{
+			next = (next + step + W_COUNT) % W_COUNT;   // one gun along, wrapping past either end
+			if (player.owned[next])
+			{
+				player.weapon = (WeaponType)next;
+				break;
+			}
+		}
+	}
 }
 
 /* =========================================================

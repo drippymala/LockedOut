@@ -284,7 +284,7 @@ void Main_Menu_Update(void)
 	}
 #endif   // SHOW_MENU_LEGEND
 
-	M_Text("WASD - Move     Mouse - Aim     Hold LEFT CLICK - Shoot     1-5 - Switch gun     ESC - Pause",
+	M_Text("WASD - Move     Mouse - Aim     Hold LEFT CLICK - Shoot     1-5 / Q / E - Switch gun     ESC - Pause",
 		s_menuW * 0.5f, s_menuH - 40.0f * s_k, 24.0f * s_k, CP_Color_Create(180, 180, 180, 255), true);
 }
 

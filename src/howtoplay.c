@@ -39,6 +39,7 @@ static const HowLine s_controlsPage[] =
 	{ C_BODY, HS_BODY, "Mouse  -  aim (your gun always points at the cursor)" },
 	{ C_BODY, HS_BODY, "Hold LEFT CLICK  -  shoot / use your current gun" },
 	{ C_BODY, HS_BODY, "1 - 5  -  switch to a gun you have unlocked (you start with only the Pistol)" },
+	{ C_BODY, HS_BODY, "Q / E  -  previous / next gun you have unlocked (it wraps around)" },
 	{ C_BODY, HS_BODY, "ESC  -  pause / resume          M (while paused)  -  back to the main menu" },
 	{ 0, 0, 0, HS_GAP, "" },
 	{ C_HEAD, HS_HEAD, "THE ONE RULE: EVERY SHOT COSTS YOUR BLOOD" },
